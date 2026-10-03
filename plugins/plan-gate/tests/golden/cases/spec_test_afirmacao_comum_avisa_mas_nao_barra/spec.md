@@ -1,0 +1,1 @@
+O `servico.py` le o arquivo e devolve o valor.

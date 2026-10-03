@@ -1,0 +1,1245 @@
+{
+  "check": {
+    "agent.json": {
+      "mark_rc": 2,
+      "rc": 2
+    },
+    "bash_c_redirect.json": {
+      "mark_rc": 2,
+      "rc": 2
+    },
+    "bash_cat_devnull.json": {
+      "mark_rc": 2,
+      "rc": 0
+    },
+    "bash_echo_tmp.json": {
+      "mark_rc": 2,
+      "rc": 0
+    },
+    "bash_ls.json": {
+      "mark_rc": 2,
+      "rc": 0
+    },
+    "bash_sed_i.json": {
+      "mark_rc": 2,
+      "rc": 2
+    },
+    "edit_plan.json": {
+      "mark_rc": 2,
+      "rc": 0
+    },
+    "task.json": {
+      "mark_rc": 2,
+      "rc": 2
+    },
+    "write_code.json": {
+      "mark_rc": 2,
+      "rc": 2
+    }
+  },
+  "internal_sha": "78c6b00b0ade9fe2cd22d37ea304f6982cdcf25e",
+  "preflight_plan": {
+    "prose_only": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "commits": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        }
+      },
+      "rc": 0
+    },
+    "test_arquivo_de_verdade_continua_sendo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 7,
+          "state": "ACHADO"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_assert_de_unittest_nao_e_metodo_inventado": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_builtin_e_metodo_de_stdlib_nao_sao_inventados": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_bytes_invalidos_sao_NAO_AVALIADO_e_saem_2": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "commits": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_cabeca_da_cadeia_manda": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_cada_grupo_acha_o_que_o_legado_achava": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_campo_de_interface_nao_vira_metodo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_cerca_que_o_extrator_nao_fecha_e_NAO_AVALIADO": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_chamada_nao_e_confundida_com_definicao": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_chamada_nao_e_confundida_com_definicao_controle_sem_uso_no_repo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_com_task_o_achado_de_verdade_continua_saindo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_comentario_no_fim_da_linha_nao_vira_chamada": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "OK"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_config_de_alias_quebrada_nao_vira_ausencia": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        }
+      },
+      "rc": 2
+    },
+    "test_extensao_exotica_com_barra_ainda_e_arquivo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_linguagem_fora_da_tabela_e_NAO_AVALIADO_nao_NAO_APLICAVEL": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_linguagem_fora_da_tabela_sai_2": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_metodo_async_sem_palavra_chave_e_encontrado": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_metodo_de_biblioteca_sobre_receptor_minusculo_sai": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_metodo_de_classe_sem_palavra_chave_e_encontrado": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    },
+    "test_metodo_inventado_de_verdade_continua_saindo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_metodo_inventado_no_NOSSO_objeto_continua_saindo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_os_tres_formatos_reais_sao_reconhecidos_1": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_os_tres_formatos_reais_sao_reconhecidos_2": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_os_tres_formatos_reais_sao_reconhecidos_3": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_plano_python_com_task_AGORA_e_avaliado": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_plano_sem_bloco_de_codigo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        }
+      },
+      "rc": 1
+    },
+    "test_plano_sem_task_reconhecida": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "commits": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_python_e_php_sao_avaliados_e_acham_php": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_python_e_php_sao_avaliados_e_acham_python": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_receptor_criado_pelo_plano_continua_contando": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 1,
+          "state": "ACHADO"
+        }
+      },
+      "rc": 1
+    },
+    "test_sem_task_nenhuma_o_relatorio_declara_que_nao_avaliou": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "commits": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "NAO_AVALIADO"
+        }
+      },
+      "rc": 2
+    },
+    "test_simbolo_pontuado_nao_e_arquivo": {
+      "groups": {
+        "aliases": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "arquivos": {
+          "count": 0,
+          "state": "OK"
+        },
+        "cobertura": {
+          "count": 0,
+          "state": "OK"
+        },
+        "commits": {
+          "count": 1,
+          "state": "ACHADO"
+        },
+        "constantes": {
+          "count": 0,
+          "state": "NAO_APLICAVEL"
+        },
+        "fail_open": {
+          "count": 0,
+          "state": "OK"
+        },
+        "simbolos": {
+          "count": 0,
+          "state": "OK"
+        }
+      },
+      "rc": 1
+    }
+  },
+  "preflight_spec": {
+    "spec_test_a_MESMA_frase_com_citacao_passa": {
+      "rc": 0
+    },
+    "spec_test_afirmacao_comum_avisa_mas_nao_barra": {
+      "rc": 0
+    },
+    "spec_test_arquivo_de_OUTRO_sistema_apenas_avisa": {
+      "rc": 0
+    },
+    "spec_test_citacao_de_bloco_nao_barra": {
+      "rc": 0
+    },
+    "spec_test_citacao_que_menciona_passa": {
+      "rc": 0
+    },
+    "spec_test_citacao_que_nao_menciona_o_simbolo_BARRA": {
+      "rc": 1
+    },
+    "spec_test_frase_entre_aspas_nao_barra": {
+      "rc": 0
+    },
+    "spec_test_garantia_sem_citacao_BARRA": {
+      "rc": 1
+    },
+    "spec_test_intencao_nao_e_afirmacao": {
+      "rc": 0
+    },
+    "spec_test_linha_alem_do_fim_BARRA": {
+      "rc": 1
+    },
+    "spec_test_linha_que_existe_passa": {
+      "rc": 0
+    },
+    "spec_test_nome_que_a_spec_PROPOE_nao_barra": {
+      "rc": 0
+    },
+    "spec_test_politica_sobre_GENTE_nao_barra_1": {
+      "rc": 0
+    },
+    "spec_test_politica_sobre_GENTE_nao_barra_2": {
+      "rc": 0
+    },
+    "spec_test_quantitativo_com_valor_fica_OK": {
+      "rc": 0
+    },
+    "spec_test_quantitativo_sem_valor_avisa_mas_nao_barra": {
+      "rc": 0
+    },
+    "spec_test_spec_com_bloqueio_sai_um": {
+      "rc": 1
+    },
+    "spec_test_spec_limpa_sai_zero": {
+      "rc": 0
+    }
+  },
+  "probes": {
+    "test_arquivo_de_verdade_continua_sendo": {
+      "cited": {
+        "Dockerfile": true,
+        "Makefile": true,
+        "README.md": true,
+        "app/code/Vendor/Modulo/etc/di.xml": true,
+        "composer.json": true,
+        "src/servico.ts": true,
+        "tests/test_x.py": true
+      }
+    },
+    "test_chamada_nao_e_confundida_com_definicao": {
+      "symbols": {
+        "outro": {
+          "defined": false,
+          "used": true
+        }
+      }
+    },
+    "test_chamada_nao_e_confundida_com_definicao_controle_sem_uso_no_repo": {
+      "symbols": {
+        "outro": {
+          "defined": false,
+          "used": false
+        }
+      }
+    },
+    "test_extensao_exotica_com_barra_ainda_e_arquivo": {
+      "cited": {
+        "config/nginx/site.vhost": true
+      }
+    },
+    "test_metodo_async_sem_palavra_chave_e_encontrado": {
+      "symbols": {
+        "enviarLote": {
+          "defined": true,
+          "used": true
+        }
+      }
+    },
+    "test_metodo_de_classe_sem_palavra_chave_e_encontrado": {
+      "symbols": {
+        "reconciliar": {
+          "defined": true,
+          "used": true
+        }
+      }
+    },
+    "test_simbolo_pontuado_nao_e_arquivo": {
+      "cited": {
+        "Pedido.reconciliar": false,
+        "config.debug": false,
+        "resposta.statusCode": false
+      }
+    }
+  }
+}

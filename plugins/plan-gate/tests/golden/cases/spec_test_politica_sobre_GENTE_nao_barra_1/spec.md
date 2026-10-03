@@ -1,0 +1,1 @@
+O diretorio `docs/superpowers/` nunca e commitado, em nenhum projeto.

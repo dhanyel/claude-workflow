@@ -1,0 +1,1 @@
+A funcao `gravar_no_disco` trata o erro de disco — ver `servico.py:1`.

@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "golden",
+  "cwd": "{REPO}",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "{REPO}/app.py",
+    "content": "x = 1\n"
+  }
+}

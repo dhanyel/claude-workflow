@@ -1,0 +1,6 @@
+[
+  {"id": "preflight", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/preflight_plan.py\" --json",
+   "required": true, "applies_to": ["plan"]},
+  {"id": "preflight-spec", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/preflight_spec.py\" --json",
+   "required": true, "applies_to": ["spec"]}
+]

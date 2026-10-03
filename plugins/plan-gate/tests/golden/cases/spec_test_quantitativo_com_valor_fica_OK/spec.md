@@ -1,0 +1,1 @@
+O teto diario e de 9000000 tokens.

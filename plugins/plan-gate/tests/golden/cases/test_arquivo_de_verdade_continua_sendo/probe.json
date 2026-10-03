@@ -1,0 +1,11 @@
+{
+  "cited": [
+    "src/servico.ts",
+    "composer.json",
+    "README.md",
+    "Dockerfile",
+    "Makefile",
+    "app/code/Vendor/Modulo/etc/di.xml",
+    "tests/test_x.py"
+  ]
+}

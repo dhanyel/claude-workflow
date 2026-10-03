@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "golden",
+  "cwd": "{REPO}",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "{REPO}/docs/superpowers/plans/plan.md",
+    "old_string": "Example",
+    "new_string": "Sample"
+  }
+}

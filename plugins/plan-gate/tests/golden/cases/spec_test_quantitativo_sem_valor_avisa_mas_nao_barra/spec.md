@@ -1,0 +1,1 @@
+O teto diario protege a equipe de um laco maluco.

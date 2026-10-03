@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "golden",
+  "cwd": "{REPO}",
+  "tool_name": "Task",
+  "tool_input": {
+    "description": "d",
+    "prompt": "p",
+    "subagent_type": "general-purpose"
+  }
+}

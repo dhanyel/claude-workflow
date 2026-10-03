@@ -1,0 +1,9 @@
+{
+  "name": "claude-workflow",
+  "owner": {"name": "Dhanyel Nunes", "email": "dhanyel.andrade@gmail.com"},
+  "metadata": {"description": "Claude Code plugins for a plan-first, measured workflow."},
+  "plugins": [
+    {"name": "plan-gate", "source": "./plugins/plan-gate",
+     "description": "Blocks implementation until the plan passes its checks; times each phase; writes the MR/PR."}
+  ]
+}

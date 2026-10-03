@@ -1,0 +1,4 @@
+# Spec, plano, reviews e descrições de MR ficam locais — nunca versionados.
+docs/superpowers/
+__pycache__/
+*.pyc

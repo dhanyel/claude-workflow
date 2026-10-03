@@ -1,0 +1,1 @@
+O `servico.py` ja impede que o valor passe do teto (`servico.py:1`).

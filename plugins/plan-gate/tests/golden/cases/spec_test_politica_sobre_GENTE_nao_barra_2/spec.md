@@ -1,0 +1,1 @@
+A config em `config/app.json` e sempre gerada, nunca digitada a mao.

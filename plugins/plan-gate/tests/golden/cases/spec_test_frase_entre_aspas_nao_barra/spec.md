@@ -1,0 +1,1 @@
+Eu tinha escrito que "o `servico.py` ja impede o estouro", e estava errado.

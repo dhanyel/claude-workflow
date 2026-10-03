@@ -1,0 +1,1 @@
+Vamos criar `modelo_upstream` para separar as duas representacoes.

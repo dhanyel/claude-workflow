@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/plan_gate.py\" register-checks"}]}
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/timeline.py\" hook prompt"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/timeline.py\" hook stop"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Write|Edit|MultiEdit|NotebookEdit",
+       "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/plan_gate.py\" mark",
+                  "timeout": 180}]},
+      {"matcher": "Bash",
+       "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/timeline.py\" hook bash"}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Task|Agent|Write|Edit|MultiEdit|NotebookEdit|Bash",
+       "hooks": [{"type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/plan_gate.py\" check"}]}
+    ]
+  }
+}

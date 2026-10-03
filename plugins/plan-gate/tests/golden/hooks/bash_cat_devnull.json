@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "golden",
+  "cwd": "{REPO}",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat x 2>/dev/null"
+  }
+}

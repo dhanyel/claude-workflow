@@ -1,0 +1,46 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        shell: bash
+        run: |
+          # Hide ripgrep by replacing only it, not its directory
+          NEW_PATH=""
+          IFS=':' read -ra path_dirs <<< "$PATH"
+          for dir in "${path_dirs[@]}"; do
+            if [ -z "$dir" ]; then
+              continue
+            fi
+            if [ -x "$dir/rg" ] 2>/dev/null; then
+              # Create temp mirror without rg
+              tmpdir="$RUNNER_TEMP/pathfix_$(basename "$dir")"
+              mkdir -p "$tmpdir"
+              for entry in "$dir"/*; do
+                name=$(basename "$entry")
+                if [ "$name" != "rg" ]; then
+                  ln -s "$entry" "$tmpdir/$name" 2>/dev/null || true
+                fi
+              done
+              NEW_PATH="${NEW_PATH}${NEW_PATH:+:}$tmpdir"
+            else
+              NEW_PATH="${NEW_PATH}${NEW_PATH:+:}$dir"
+            fi
+          done
+          export PATH="$NEW_PATH"
+
+          ! command -v rg || { echo "ERROR: rg still found"; exit 1; }
+          command -v git python3
+          python3 -m unittest discover -b -s plugins/plan-gate/tests -t .

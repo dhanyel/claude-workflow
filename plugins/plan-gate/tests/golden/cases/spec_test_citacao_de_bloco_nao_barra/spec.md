@@ -1,0 +1,1 @@
+> O `servico.py` ja impede o estouro do teto.

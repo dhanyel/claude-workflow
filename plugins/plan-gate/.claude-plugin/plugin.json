@@ -1,0 +1,3 @@
+{"name": "plan-gate", "version": "0.1.0",
+ "description": "Plan-first gate with registrable checks, wall-clock timing per phase and MR/PR reports.",
+ "author": {"name": "Dhanyel Nunes"}, "license": "MIT"}
