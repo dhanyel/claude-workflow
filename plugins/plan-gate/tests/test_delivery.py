@@ -48,8 +48,9 @@ class TestDelivery(unittest.TestCase):
     def test_verify_fails_when_description_came_back_short(self):
         short = lambda m, u, h, b: (200, {"description": "x"})
         full = lambda m, u, h, b: (200, {"description": "x" * 500})
-        self.assertFalse(delivery.verify("gitlab", "g/p", 7, 500, transport=short, base_url="https://gitlab.example"))
-        self.assertTrue(delivery.verify("gitlab", "g/p", 7, 500, transport=full, base_url="https://gitlab.example"))
+        with mock.patch.dict(os.environ, {"GITLAB_TOKEN": "t"}):
+            self.assertFalse(delivery.verify("gitlab", "g/p", 7, 500, transport=short, base_url="https://gitlab.example"))
+            self.assertTrue(delivery.verify("gitlab", "g/p", 7, 500, transport=full, base_url="https://gitlab.example"))
 
     def test_comment_issue_posts_to_the_issue_notes(self):
         seen = []
