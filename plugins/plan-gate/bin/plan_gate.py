@@ -106,10 +106,15 @@ def without_home(path):
     ⚠️ Declared limit: replaces ONLY the home of whoever is running. A path under somebody else's home
     stays intact -- it is not ours to rewrite.
     """
+    # Both spellings: HOME as set AND as resolved (macOS: /var/folders/.. comes back as /private/var/..
+    # from getcwd()/realpath). Longest first, each one only at a separator boundary.
     home = os.path.expanduser("~")
-    if path == home:
-        return "~"
-    return "~" + path[len(home):] if path.startswith(home + os.sep) else path
+    for h in sorted({home, os.path.realpath(home)}, key=len, reverse=True):
+        if path == h:
+            return "~"
+        if path.startswith(h + os.sep):
+            return "~" + path[len(h):]
+    return path
 
 
 # Tools that mean "I started implementing".

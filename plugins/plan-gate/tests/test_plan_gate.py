@@ -43,7 +43,7 @@ Ported name table (INTERNAL -> here):
     test_status_nao_string_nao_derruba_a_listagem -> test_non_string_status_does_not_break_the_listing
     test_arquivo_corrompido_vira_uma_linha_e_os_outros_aparecem -> test_corrupted_file_becomes_one_line_and_the_others_show
 """
-import json, os, subprocess, sys, unittest
+import json, os, subprocess, sys, tempfile, unittest
 from unittest import mock
 from .helpers import (BIN, SWITCHES, run, temp_state, fake_repo, fake_plan, hook_input, state_of, denied,
                       import_bin)
@@ -167,6 +167,38 @@ class TestMessages(unittest.TestCase):
             for out in (m[2], c[2], r[1], r[2], e[1], e[2]):
                 self.assertNotIn(env["HOME"], out)       # THIS one can fail: the HOME is in the real paths
                 self.assertNotIn("~/.claude/bin", out)
+
+    def test_without_home_covers_the_literal_and_the_resolved_home(self):
+        gate = import_bin("plan_gate")
+        with tempfile.TemporaryDirectory(prefix="plan-gate-sym-") as d:
+            real = os.path.realpath(os.path.join(d, "real"))
+            os.makedirs(real)
+            link = os.path.join(d, "link")
+            os.symlink(real, link)
+            with mock.patch.dict(os.environ, {"HOME": link}):
+                self.assertEqual(gate.without_home(link + "/p/x.md"), "~/p/x.md")
+                self.assertEqual(gate.without_home(real + "/p/x.md"), "~/p/x.md")
+                self.assertEqual(gate.without_home(link), "~")
+                self.assertEqual(gate.without_home(real), "~")
+                # not a path prefix: a sibling that merely starts with the same characters
+                self.assertEqual(gate.without_home(link + "x/p.md"), link + "x/p.md")
+                self.assertEqual(gate.without_home(real + "x/p.md"), real + "x/p.md")
+
+    def test_no_output_leaks_a_home_that_is_a_symlink(self):
+        # macOS: HOME=/var/folders/.. while getcwd()/realpath say /private/var/folders/..
+        with temp_state() as env, tempfile.TemporaryDirectory(prefix="plan-gate-sym-") as d:
+            real = os.path.realpath(os.path.join(d, "real"))
+            os.makedirs(real)
+            link = os.path.join(d, "link")
+            os.symlink(real, link)
+            env = dict(env, HOME=link)
+            repo = repo_in(real)
+            e = run("plan_gate.py", "release", os.path.join(link, "missing.md"), "--reason", "x",
+                    env=env, cwd=repo)
+            self.assertNotEqual(e[0], 0)
+            for out in (e[1], e[2]):
+                self.assertNotIn(link, out)
+                self.assertNotIn(real, out)
 
     def test_denial_teaches_the_way_and_declares_the_limit(self):
         with temp_state() as env, fake_repo() as repo:
