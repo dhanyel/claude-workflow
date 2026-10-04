@@ -424,6 +424,8 @@ class Result:
     reason: str = ""
     session: str = ""
     telemetry: dict = dataclasses.field(default_factory=dict)
+    # False only when a failed call says a repeat cannot help (the provider refused, non-retryable): no repair turn
+    repairable: bool = True
 
 
 class Refused(Exception):
@@ -780,7 +782,11 @@ def run_round(path, backend, settings, options, *, gate_api, cfg=None):
                                    options=options, deadline=deadline)
                 data, error = _read_output(output_json) if r.ok else (None, r.reason or "the backend failed")
                 slack = min(30, options.timeout_s // 4)
-                if error and backend.CAN_REPAIR and r.session and deadline - time.monotonic() > slack:
+                # ⚠️ Three cases. (1) The reviewer ANSWERED and the JSON is unusable: repair. (2) The backend failed
+                # but may recover (a stall after output): repair, as before. (3) The backend failed with
+                # `repairable=False` (the provider refused, e.g. a 403 with isRetryable false): repeating the call
+                # only spends quota and takes the same error, so the round ends NO VERDICT with the ORIGINAL reason.
+                if error and (r.ok or r.repairable) and backend.CAN_REPAIR and r.session and deadline - time.monotonic() > slack:
                     print(i18n.t("review.repairing", lang, error=error), file=sys.stderr)
                     r2 = backend.repair(path=path, repo=repo, session=r.session, reason=error,
                                         output_json=output_json, settings=settings, options=options,

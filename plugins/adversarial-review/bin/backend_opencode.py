@@ -115,10 +115,13 @@ def generate_config(repo, output_json, settings, thinking, cfg_path):
     agent["tools"] = {"bash": False}
     if not thinking:
         agent["thinking"] = {"type": "disabled"}
+    # ⚠️ `agent.title.disable`: the 1st request of every round was opencode's title generator (system "You are a title
+    # generator..."), which does NOT carry the agent.md -- only the 1st user message --, costs ~3k tokens per round and
+    # nobody reads the title. Disabling it removes the agent (measured on opencode 1.18.32: 2 requests -> 1, same answer).
     # ⚠️ lsp/formatter OFF: with them on in the user's GLOBAL config, opencode runs the REPO's eslint/prettier (repo
     # code) with the whole environment -- the endpoint token included.
     cfg = {"$schema": "https://opencode.ai/config.json", "lsp": False, "formatter": False,
-           "agent": {AGENT_NAME: agent}}
+           "agent": {AGENT_NAME: agent, "title": {"disable": True}}}
     if settings.backend == "endpoint":
         cfg["provider"] = {ENDPOINT_PROVIDER_ID: {
             "npm": "@ai-sdk/openai-compatible", "name": "adversarial-review endpoint",
@@ -244,6 +247,35 @@ def telemetry_from_stream(path, secret=""):
             _scrub(" ".join(texts), secret)[-300:])
 
 
+def provider_refused(path):
+    """True when the stream holds a provider error event that a repeat cannot fix: `isRetryable: false`, or a 4xx
+    `statusCode` the event does not mark retryable. Decided from the event's JSON fields, never from message text.
+
+    The event is {"type": "error", "error": {"name": "APIError", "data": {"statusCode": 403, "isRetryable": false}}}
+    (measured against an endpoint that answered 403).
+    """
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        err = e.get("error") if isinstance(e, dict) and e.get("type") == "error" else None
+        data = err.get("data") if isinstance(err, dict) else None
+        if not isinstance(data, dict):
+            continue
+        status, retryable = data.get("statusCode"), data.get("isRetryable")
+        if retryable is False:
+            return True
+        if retryable is not True and isinstance(status, int) and not isinstance(status, bool) and 400 <= status < 500:
+            return True
+    return False
+
+
 def _scrub(value, secret):
     """`value` with every occurrence of `secret` masked, recursively -- raw AND JSON-escaped (a provider's auth error may
     quote the key inside a JSON body). It works per value: a token split across two events is not caught here; the
@@ -367,11 +399,12 @@ def _delivery(output_json):
             f"each finding has `severity` (BLOCKER|RISK|NOTE), `where` and `problem`.")
 
 
-def _failure(error, text, session, telemetry, settings):
+def _failure(error, text, session, telemetry, settings, stream=None):
     # masked BEFORE the cut too (text already comes masked from telemetry_from_stream; this is the second net)
     text = _scrub(text, settings.token)
     reason = f"{_scrub(error, settings.token)}. Last text: {text[:160]}" if text else _scrub(error, settings.token)
-    return loop.Result(False, reason, session or "", _scrub(telemetry, settings.token))
+    return loop.Result(False, reason, session or "", _scrub(telemetry, settings.token),
+                       repairable=not (stream and provider_refused(stream)))
 
 
 def review(*, path, repo, prompt, output_json, settings, options, deadline):
@@ -389,7 +422,8 @@ def review(*, path, repo, prompt, output_json, settings, options, deadline):
         error, stalled = _run(exe, repo, env, request, model, options, deadline, stream)
         tel, session, text = telemetry_from_stream(stream, settings.token)
         # ⚠️ ONE more attempt only when it hung at START-UP (opencode#35870: not a byte, so nothing was spent) and
-        # there is time left. A stall after output already spent quota; the loop's repair turn covers that.
+        # there is time left. A stall after output already spent quota; the loop's repair turn covers that (the failure stays
+        # `repairable`: only a provider refusal read from the stream, see provider_refused, is not).
         if error and stalled and time.monotonic() < deadline:
             stream = os.path.join(tmpdir, "review-retry.jsonl")
             error, _ = _run(exe, repo, env, request, model, options, deadline, stream)
@@ -398,7 +432,7 @@ def review(*, path, repo, prompt, output_json, settings, options, deadline):
             session = session2 or session
         tel["thinking"] = "on" if options.thinking else "off"
         if error and not (error.startswith("opencode exited") and os.path.isfile(output_json)):
-            return _failure(error, text, session, tel, settings)
+            return _failure(error, text, session, tel, settings, stream)
         # a non-zero exit that still wrote the JSON: the loop validates what was written
         return loop.Result(True, "", session or "", _scrub(tel, settings.token))
     finally:
@@ -420,7 +454,7 @@ def repair(*, path, repo, session, reason, output_json, settings, options, deadl
         error, _ = _run(exe, repo, env, request, run_model(settings), options, deadline, stream, session=session)
         tel, _, text = telemetry_from_stream(stream, settings.token)
         if error and not (error.startswith("opencode exited") and os.path.isfile(output_json)):
-            return _failure(f"repair failed: {error}", text, session, tel, settings)
+            return _failure(f"repair failed: {error}", text, session, tel, settings, stream)
         return loop.Result(True, "", session, _scrub(tel, settings.token))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

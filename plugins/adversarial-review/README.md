@@ -87,7 +87,8 @@ override trail). A plan whose file name holds a wildcard character (`*`, `?`, `[
 permission is a glob. Everything else is denied (the permission base is deny-all, so a
 tool you added to your global opencode config, such as an MCP server that writes, stays off). A web fetch, a sub-agent
 and any directory outside the repo are denied too. The generated config turns `lsp` and `formatter` off, because they
-would run the reviewed repository's own tools with the token in the environment.
+would run the reviewed repository's own tools with the token in the environment. It also disables opencode's
+title generator (`agent.title.disable`), whose extra request cost about 3k tokens per round for a title nobody reads.
 
 The reviewed repository cannot reconfigure the reviewer: the child runs with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, and
 the round's config is also passed in `OPENCODE_CONFIG_CONTENT`, which loads last. A repo's `opencode.json` or

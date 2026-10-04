@@ -162,6 +162,46 @@ class TestModelFromTheStream(unittest.TestCase):
         self.assertEqual(tel["model"], "")
 
 
+class TestProviderRefusalIsNotRepairable(RunCase):
+    """`Result.repairable`: False only when the provider's own error event says a repeat cannot help. The event is
+    read as JSON (opencode `--format json`: {"type": "error", "error": {"name": "APIError", "data": {...}}}, the shape
+    measured against an endpoint that answered 403), never by substring."""
+
+    def test_a_403_that_is_not_retryable_is_not_repairable(self):
+        self.mode("api_403")
+        r = self.review()
+        self.assertFalse(r.ok)
+        self.assertIs(r.repairable, False)
+        self.assertIn("403", r.reason)
+
+    def test_a_retryable_500_stays_repairable(self):
+        self.mode("api_500")
+        r = self.review()
+        self.assertFalse(r.ok)
+        self.assertIs(r.repairable, True)
+
+    def test_a_failure_without_an_api_event_stays_repairable(self):
+        self.mode("exit1")
+        r = self.review()
+        self.assertFalse(r.ok)
+        self.assertIs(r.repairable, True)
+
+    def test_a_failed_repair_reports_it_too(self):
+        self.mode("api_403")
+        r = self.repair()
+        self.assertFalse(r.ok)
+        self.assertIs(r.repairable, False)
+
+    def test_the_decision_reads_the_fields_not_the_text(self):
+        p = write(os.path.join(tempfile.mkdtemp(), "ev.jsonl"),
+                  json.dumps({"part": {"type": "text", "text": '"statusCode": 403, "isRetryable": false'}}) + "\n")
+        self.assertFalse(bo.provider_refused(p))
+        p = write(os.path.join(tempfile.mkdtemp(), "ev2.jsonl"),
+                  json.dumps({"type": "error", "error": {"name": "APIError", "data": {"statusCode": 429,
+                                                                                  "isRetryable": True}}}) + "\n")
+        self.assertFalse(bo.provider_refused(p))
+
+
 class TestBackendContract(unittest.TestCase):
     def test_repairs(self):
         """INTERNAL TestContratoDoBackend.test_repara_e_expoe_o_rotulo (the ROTULO half is dropped)."""

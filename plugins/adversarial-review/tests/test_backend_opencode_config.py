@@ -56,6 +56,12 @@ class TestGeneratedConfig(Base):
             "webfetch": "deny", "websearch": "deny", "task": "deny", "skill": "deny",
             "external_directory": "deny", "question": "deny", "invalid": "allow", "doom_loop": "allow"})
 
+    def test_the_title_generator_is_disabled_for_both_opencode_backends(self):
+        for s in (ZAI, ENDPOINT_SETTINGS):
+            cfg = self.gen(s)
+            self.assertEqual(cfg["agent"]["title"], {"disable": True}, s.backend)
+            self.assertIn("plan-reviewer", cfg["agent"], s.backend)
+
     # from TestConfigGerado.test_so_pode_escrever_a_review
     def test_edit_only_this_rounds_output_json(self):
         """R18 (final review I5): not `reviews/*` -- earlier rounds' JSON and the -override.md stay out of reach."""

@@ -165,6 +165,23 @@ class TestRunRound(RoundCase):
         self.assertEqual(repair_kw["session"], "ses-1")
         self.assertIn("invalid JSON", repair_kw["reason"])
 
+    def test_a_failure_the_provider_refused_is_never_repaired_it_ends_as_no_verdict_with_the_original_reason(self):
+        """A non-retryable provider error (here a 403) would only be repeated, costing one more request."""
+        reason = 'opencode exited 1. Last text: {"name": "APIError", "data": {"statusCode": 403, "isRetryable": false}}'
+        b = FakeBackend(True, True, [loop.Result(False, reason=reason, session="ses-1", repairable=False)])
+        self.assertEqual(self.round(b), 3)
+        self.assertEqual(self.kinds(b), ["review"])
+        self.assertEqual(self.printed()["verdict"], "NO VERDICT")
+        self.assertEqual(self.printed()["reason"], reason)
+        self.assertEqual(self.state_of()["last_failure"]["reason"], reason)
+
+    def test_a_repairable_backend_failure_after_output_is_still_repaired(self):
+        """A stall after output already spent quota: the repair turn covers it (backend_opencode.review)."""
+        b = FakeBackend(True, True, [loop.Result(False, reason="opencode stalled", session="ses-1"),
+                                     writes(review())])
+        self.assertEqual(self.round(b), 0)
+        self.assertEqual(self.kinds(b), ["review", "repair"])
+
     def test_invalid_escape_resolves_itself_without_asking_for_a_repair(self):
         """Origin: TestExecutarRodada.test_escape_invalido_resolve_sozinho_sem_pedir_reparo."""
         raw = (r'{"verdict": "APPROVED", "summary": "s", '

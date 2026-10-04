@@ -13,6 +13,9 @@ FAKE_OPENCODE_MODE     invalid_once     the first call writes invalid JSON, the 
                        talk_then_silent prints the session line, then sleeps 30 s (a stall mid-run)
                        chatty           prints a line every 0.2 s for 30 s (bytes flow, it never ends)
                        exit1            writes nothing and exits 1
+                       api_403          an error event with the measured provider shape (APIError, statusCode 403,
+                                        isRetryable false), writes nothing, exits 1
+                       api_500          the same with statusCode 500 and isRetryable true
                        echo_token       prints an error event quoting the endpoint token 10 times (and as its
                                         modelID), writes nothing, exits 1
                        echo_token_ok    the same error event and a text quoting the token, then a normal success
@@ -54,6 +57,12 @@ if mode == "silent":
     time.sleep(30)
     sys.exit(0)
 if mode == "exit1":
+    sys.exit(1)
+if mode in ("api_403", "api_500"):
+    refused = mode == "api_403"
+    say({"type": "error", "sessionID": session,
+         "error": {"name": "APIError", "data": {"message": "provider error", "statusCode": 403 if refused else 500,
+                                                "isRetryable": not refused}}})
     sys.exit(1)
 if mode in ("echo_token", "echo_token_ok"):
     # the key tiled across 10 copies: any cut (at 160, 300, the last 300...) lands inside one of them
