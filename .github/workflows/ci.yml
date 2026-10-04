@@ -44,3 +44,4 @@ jobs:
           ! command -v rg || { echo "ERROR: rg still found"; exit 1; }
           command -v git python3
           python3 -m unittest discover -b -s plugins/plan-gate/tests -t .
+          python3 -m unittest discover -b -s plugins/adversarial-review/tests -t .

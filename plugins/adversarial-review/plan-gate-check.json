@@ -1,0 +1,2 @@
+[{"id": "adversarial-review", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/check.py\"",
+  "required": true, "applies_to": ["plan"]}]

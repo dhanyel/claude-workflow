@@ -185,6 +185,86 @@ class TestChecks(unittest.TestCase):
             self.assertFalse(self.write_denied(env, repo))
 
 
+class TestFailingCheckDetail(unittest.TestCase):
+    """The gate's pending message carries WHAT a failing non-preflight check says (and the command it names)."""
+    ITEM = 'do this:\\n  cmd \\"/p.md\\"'          # JSON-escaped inside the fake check's printf
+    SHOWN = ("      do this:", '        cmd "/p.md"')
+
+    def failing(self, env, tmp, items_json=None):
+        out = '{"status":"fail","findings":[{"group":"x","state":"findings","count":1,"items":[' \
+              + (items_json or '"' + self.ITEM + '"') + ']}]}'
+        manifest, _ = fake_check(tmp, "ext", out)
+        rc, _, err = run("plan_gate.py", "register-check", manifest, env=env)
+        self.assertEqual(rc, 0, err)
+
+    def assert_indented_under_entry(self, err):
+        lines = err.splitlines()
+        i = lines.index("  - ext: x")
+        self.assertEqual(tuple(lines[i + 1:i + 3]), self.SHOWN)
+
+    def test_mark_shows_the_items_of_a_failing_non_preflight_check(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as tmp:
+            self.failing(env, tmp)
+            plan = fake_plan(repo)
+            rc, _, err = run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            self.assertEqual(rc, 2)
+            self.assert_indented_under_entry(err)
+
+    def test_run_checks_shows_the_items_too(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as tmp:
+            self.failing(env, tmp)
+            plan = fake_plan(repo)
+            rc, out, err = run("plan_gate.py", "run-checks", plan, env=env)
+            self.assertNotEqual(rc, 0)
+            self.assert_indented_under_entry(out + err)
+
+    def test_release_shows_the_items_too(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as tmp:
+            self.failing(env, tmp)
+            plan = fake_plan(repo)
+            run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            rc, out, err = run("plan_gate.py", "release", plan, "--reason", "r", env=env)
+            self.assertEqual(rc, 2, out + err)
+            self.assert_indented_under_entry(out + err)
+
+    def test_a_failing_real_preflight_still_shows_group_ids_only(self):
+        with temp_state() as env, fake_repo() as repo:
+            env = dict(env, CLAUDE_PLUGIN_ROOT=PLUGIN)
+            run("plan_gate.py", "register-checks", env=env)
+            plan = fake_plan(repo, extra="\n" + "`" * 3 + "bash\necho hi\n" + "`" * 3 + "\n")
+            rc, _, err = run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            self.assertEqual(rc, 2)
+            tail = err.split("Registered checks that did not pass:\n")[1]
+            self.assertEqual([l for l in tail.splitlines() if l.startswith("      ")], [])
+            self.assertIn("  - preflight:", tail)
+
+    def test_the_appended_items_are_capped_with_a_count_of_the_rest(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as tmp:
+            self.failing(env, tmp, ",".join('"line %d"' % n for n in range(30)))
+            plan = fake_plan(repo)
+            rc, _, err = run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            self.assertEqual(rc, 2)
+            shown = [l for l in err.splitlines() if l.startswith("      ")]
+            self.assertEqual(len(shown), 21)
+            self.assertIn("line 19", shown[19])
+            self.assertNotIn("line 20", err)
+            self.assertIn("10 more", shown[20])
+
+    def test_the_cap_also_counts_bytes(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as tmp:
+            self.failing(env, tmp, ",".join('"%s"' % ("z" * 1000) for _ in range(10)))
+            plan = fake_plan(repo)
+            rc, _, err = run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            shown = [l for l in err.splitlines() if l.startswith("      ")]
+            self.assertEqual(len(shown), 5)             # 4 x 1001 bytes fit in 4096; the 5th line is the count
+            self.assertIn("6 more", shown[4])
+
+    def test_both_locales_have_the_cap_message(self):
+        for lang in ("en", "pt-BR"):
+            with open(os.path.join(PLUGIN, "locales", lang + ".json"), encoding="utf-8") as f:
+                self.assertIn("{n}", json.load(f)["gate.check_detail_more"])
+
+
 # ---------------------------------------------------------------------------------------------------
 # Controller rulings R17, R31, R32, R33 (beyond the brief's 14 tests).
 # ---------------------------------------------------------------------------------------------------
@@ -674,3 +754,265 @@ class TestCheckFixRound1(unittest.TestCase):
             plan = fake_plan(repo)
             run("plan_gate.py", "run-checks", plan, env=env)
             self.assertEqual(state_of(plan, env)["status"], "approved")
+
+
+class TestContentHashReachesTheCheck(unittest.TestCase):
+    def test_check_receives_the_hash_the_gate_records(self):
+        with temp_state() as env, fake_repo() as repo, tempfile.TemporaryDirectory() as d:
+            plan = fake_plan(repo)
+            expected = gate.content_hash(plan)
+            script = os.path.join(d, "needs-hash.sh")
+            with open(script, "w") as f:
+                f.write("#!/bin/sh\n"
+                        f"[ \"$PLAN_GATE_CONTENT_HASH\" = \"{expected}\" ] && printf '%s' '{PASS}' "
+                        f"|| printf '%s' '{FAIL}'\n")
+            os.chmod(script, 0o755)
+            manifest = os.path.join(d, "needs-hash.json")
+            with open(manifest, "w") as f:
+                json.dump({"id": "needs-hash", "command": script, "required": True, "applies_to": ["plan"]}, f)
+            rc, _, err = run("plan_gate.py", "register-check", manifest, env=env)
+            self.assertEqual(rc, 0, err)
+            rc, out, err = run("plan_gate.py", "run-checks", plan, env=env)
+            self.assertIn("approved", out, err)
+
+
+    def test_without_a_hash_the_inherited_variable_never_reaches_the_check(self):   # final review M1
+        from unittest import mock
+        checks = import_bin("checks")
+        with tempfile.TemporaryDirectory() as d:
+            script = os.path.join(d, "no-hash.sh")
+            with open(script, "w") as f:
+                f.write("#!/bin/sh\n"
+                        f"[ -z \"${{PLAN_GATE_CONTENT_HASH+set}}\" ] && printf '%s' '{PASS}' || printf '%s' '{FAIL}'\n")
+            os.chmod(script, 0o755)
+            plan = os.path.join(d, "p.md")
+            with open(plan, "w") as f:
+                f.write("# p\n")
+            with mock.patch.dict(os.environ, {"PLAN_GATE_CONTENT_HASH": "f" * 64}):
+                self.assertEqual(checks.run({"id": "no-hash", "command": script}, plan)["status"], "pass")
+                self.assertEqual(checks.run({"id": "no-hash", "command": script}, plan, content_hash="")["status"],
+                                 "pass")
+
+
+def announce(env, plugin, manifest, root):
+    folder = os.path.join(env["PLAN_GATE_DIR"], "manifests.d")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, plugin + ".json"), "w") as f:
+        json.dump({"manifest": manifest, "plugin_root": root}, f)
+
+
+class TestInbox(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def mark(self, env, repo, plan):
+        return run("plan_gate.py", "mark", env=env,
+                   stdin=hook_input("Write", {"file_path": plan}, repo, event="PostToolUse"))
+
+    def test_an_announced_check_is_registered_before_the_plan_is_checked(self):
+        with temp_state() as env, fake_repo() as repo:
+            manifest, _ = fake_check(self.tmp.name, "announced", FAIL)
+            announce(env, "some-plugin", manifest, self.tmp.name)
+            plan = fake_plan(repo)
+            rc, _, err = self.mark(env, repo, plan)
+            self.assertEqual(rc, 2)
+            self.assertIn("announced", err)          # the FAIL came from the announced check itself
+
+    def test_a_dead_inbox_entry_is_a_failing_required_check(self):
+        with temp_state() as env, fake_repo() as repo:
+            ok_manifest, _ = fake_check(self.tmp.name, "ok", PASS)
+            rc, _, err = run("plan_gate.py", "register-check", ok_manifest, env=env)
+            self.assertEqual(rc, 0, err)
+            announce(env, "gone-plugin", os.path.join(self.tmp.name, "missing.json"), self.tmp.name)
+            plan = fake_plan(repo)
+            rc, out, err = run("plan_gate.py", "run-checks", plan, env=env)
+            self.assertIn("pending", out)
+            self.assertIn("gone-plugin", err)
+
+    def test_fixing_the_inbox_entry_clears_the_error(self):
+        with temp_state() as env, fake_repo() as repo:
+            announce(env, "p", os.path.join(self.tmp.name, "missing.json"), self.tmp.name)
+            plan = fake_plan(repo)
+            run("plan_gate.py", "run-checks", plan, env=env)
+            manifest, _ = fake_check(self.tmp.name, "p-check", PASS)
+            announce(env, "p", manifest, self.tmp.name)
+            rc, out, err = run("plan_gate.py", "run-checks", plan, env=env)
+            self.assertEqual(rc, 0, err)
+            self.assertEqual([l for l in out.splitlines() if l.strip()][-1], "approved")
+            self.assertFalse(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "checks.d", "inbox-p.json")))
+
+    def test_prune_removes_dead_inbox_entries_and_their_error(self):
+        with temp_state() as env, fake_repo() as repo:
+            announce(env, "gone", os.path.join(self.tmp.name, "missing.json"), self.tmp.name)
+            run("plan_gate.py", "run-checks", fake_plan(repo), env=env)
+            rc, out, _ = run("plan_gate.py", "checks", "prune", env=env)
+            self.assertEqual(rc, 0)
+            self.assertFalse(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "manifests.d", "gone.json")))
+            self.assertFalse(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "checks.d", "inbox-gone.json")))
+
+    def test_prune_keeps_a_live_inbox_entry(self):
+        with temp_state() as env, fake_repo() as repo:
+            manifest, _ = fake_check(self.tmp.name, "live", PASS)
+            announce(env, "live", manifest, self.tmp.name)
+            run("plan_gate.py", "run-checks", fake_plan(repo), env=env)
+            run("plan_gate.py", "checks", "prune", env=env)
+            self.assertTrue(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "manifests.d", "live.json")))
+            self.assertTrue(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "checks.d", "live.json")))
+
+    def test_prune_removes_an_error_record_whose_inbox_entry_is_gone(self):
+        with temp_state() as env:
+            folder = os.path.join(env["PLAN_GATE_DIR"], "checks.d")
+            os.makedirs(folder)
+            record = os.path.join(folder, "inbox-x.json")
+            with open(record, "w") as f:
+                json.dump({"id": "inbox-x", "inbox_error": "boom", "source": "/nowhere"}, f)
+            rc, _, _ = run("plan_gate.py", "checks", "prune", env=env)
+            self.assertEqual(rc, 0)
+            self.assertFalse(os.path.exists(record))
+
+    def test_a_real_check_named_like_an_error_record_is_never_touched(self):
+        # M5 reserves the `inbox-` prefix at registration; one registered BEFORE that (written here by hand) is still
+        # never deleted or overwritten by the inbox
+        with temp_state() as env, fake_repo() as repo:
+            manifest, script = fake_check(self.tmp.name, "inbox-q", PASS)
+            target = os.path.join(env["PLAN_GATE_DIR"], "checks.d", "inbox-q.json")
+            os.makedirs(os.path.dirname(target))
+            with open(target, "w") as f:
+                json.dump({"id": "inbox-q", "command": script, "required": True, "applies_to": ["plan"],
+                           "source": manifest}, f)
+            with open(target) as f:
+                before = f.read()
+            announce(env, "q", os.path.join(self.tmp.name, "missing.json"), self.tmp.name)   # fails -> would write
+            run("plan_gate.py", "run-checks", fake_plan(repo), env=env)
+            announce(env, "q", manifest, self.tmp.name)                                       # succeeds -> would clear
+            run("plan_gate.py", "run-checks", fake_plan(repo), env=env)
+            run("plan_gate.py", "checks", "prune", env=env)
+            with open(target) as f:
+                self.assertEqual(f.read(), before)
+
+    def test_one_bad_entry_does_not_drop_the_ones_after_it(self):
+        with temp_state() as env, fake_repo() as repo:
+            folder = os.path.join(env["PLAN_GATE_DIR"], "manifests.d")
+            os.makedirs(folder)
+            with open(os.path.join(folder, "a-bad.json"), "w") as f:
+                f.write("[" * 100000)                       # RecursionError: outside any narrow except tuple
+            manifest, _ = fake_check(self.tmp.name, "z-check", FAIL)
+            announce(env, "z", manifest, self.tmp.name)
+            rc, _, err = self.mark(env, repo, fake_plan(repo))
+            self.assertIn("z-check", err)                   # the valid entry was registered and ran
+            record = os.path.join(env["PLAN_GATE_DIR"], "checks.d", "inbox-a-bad.json")
+            with open(record) as f:
+                self.assertIn("inbox_error", json.load(f))
+
+
+class TestPointer(unittest.TestCase):
+    def pointer(self, env):
+        with open(os.path.join(env["PLAN_GATE_DIR"], "gate", "pointer.json")) as f:
+            return json.load(f)
+
+    def test_any_subcommand_writes_the_pointer(self):
+        with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
+            version = json.load(f)["version"]
+        for args in (("status",), ("check",)):
+            with temp_state() as env, fake_repo() as repo:
+                stdin = hook_input("Read", {"file_path": "x"}, repo) if args == ("check",) else None
+                run("plan_gate.py", *args, env=env, stdin=stdin)
+                self.assertEqual(self.pointer(env),
+                                 {"plan_gate": os.path.join(PLUGIN, "bin", "plan_gate.py"), "version": version})
+
+    def test_an_unchanged_pointer_is_not_rewritten(self):
+        with temp_state() as env:
+            run("plan_gate.py", "status", env=env)
+            target = os.path.join(env["PLAN_GATE_DIR"], "gate", "pointer.json")
+            before = os.stat(target)
+            run("plan_gate.py", "status", env=env)
+            after = os.stat(target)
+            self.assertEqual((after.st_mtime_ns, after.st_ino), (before.st_mtime_ns, before.st_ino))
+
+    def test_an_unwritable_pointer_does_not_open_the_gate(self):
+        with temp_state() as env, fake_repo() as repo:
+            open(os.path.join(env["PLAN_GATE_DIR"], "gate"), "w").close()   # a FILE where the folder goes
+            os.makedirs(os.path.join(env["PLAN_GATE_DIR"], "errors.log"))   # and the log cannot be appended to
+            plan = fake_plan(repo)
+            run("plan_gate.py", "mark", env=env,
+                stdin=hook_input("Write", {"file_path": plan}, repo, event="PostToolUse"))
+            rc, _, _ = run("plan_gate.py", "check", env=env,
+                           stdin=hook_input("Write", {"file_path": os.path.join(repo, "app.py")}, repo))
+            self.assertTrue(denied(rc))
+
+
+class TestHooksNeverFailOpenOnBadSideFiles(unittest.TestCase):
+    """M2/M3/M4: a side file the gate reads or logs to can never turn a hook into the fail-open handler."""
+
+    def write_code(self, env, repo):
+        return run("plan_gate.py", "check", env=env,
+                   stdin=hook_input("Write", {"file_path": os.path.join(repo, "app.py")}, repo))[0]
+
+    def test_a_deeply_nested_pointer_is_rewritten_and_the_gate_holds(self):            # M2
+        with temp_state() as env, fake_repo() as repo:
+            plan = fake_plan(repo)
+            run("plan_gate.py", "mark", env=env, stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            target = os.path.join(env["PLAN_GATE_DIR"], "gate", "pointer.json")
+            with open(target, "w") as f:
+                f.write("[" * 200000 + "]" * 200000)          # json.load -> RecursionError
+            self.assertTrue(denied(self.write_code(env, repo)))
+            with open(target) as f:
+                self.assertEqual(json.load(f)["plan_gate"], os.path.join(PLUGIN, "bin", "plan_gate.py"))
+
+    def test_an_unreadable_inbox_with_an_unwritable_log_still_marks_the_plan(self):     # M3
+        with temp_state() as env, fake_repo() as repo:
+            inbox = os.path.join(env["PLAN_GATE_DIR"], "manifests.d")
+            os.makedirs(inbox)
+            os.chmod(inbox, 0)
+            try:
+                if os.access(inbox, os.R_OK):
+                    self.skipTest("running as a user that ignores permissions")
+                os.makedirs(os.path.join(env["PLAN_GATE_DIR"], "errors.log"))     # the log cannot be appended to
+                plan = fake_plan(repo)
+                rc, _, err = run("plan_gate.py", "mark", env=env,
+                                 stdin=hook_input("Write", {"file_path": plan}, repo, "PostToolUse"))
+            finally:
+                os.chmod(inbox, 0o755)
+            self.assertEqual(rc, 2, err)
+            self.assertEqual(state_of(plan, env)["status"], "pending")
+
+    def test_failed_checks_with_items_that_are_not_a_list_never_raises(self):           # M4
+        for items in (5, "text", {"a": 1}, None):
+            with self.subTest(items=items):
+                text = gate._failed_checks({
+                    "other": {"status": "fail", "findings": [{"group": "g", "state": "findings", "items": items}]},
+                    "broken": {"status": "fail", "findings": [{"group": checks_mod().ERROR_GROUP, "state": "findings",
+                                                               "items": items}]}}, None)
+                self.assertIn("other", text)
+                self.assertIn("broken", text)
+
+
+class TestCheckFilesM5(unittest.TestCase):
+    def test_an_inbox_prefixed_id_is_refused_at_registration(self):
+        with temp_state() as env, tempfile.TemporaryDirectory() as d:
+            manifest, _ = fake_check(d, "inbox-mine", PASS)
+            rc, _, err = run("plan_gate.py", "register-check", manifest, env=env)
+            self.assertEqual(rc, 0)                       # a hook subcommand: logged, stderr, exit 0 (R37)
+            self.assertIn("reserved", err)
+            self.assertFalse(os.path.exists(os.path.join(env["PLAN_GATE_DIR"], "checks.d", "inbox-mine.json")))
+
+    def test_write_uses_a_unique_temp_file_never_a_planted_one(self):
+        checks = checks_mod()
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "outside.txt")
+            with open(outside, "w") as f:
+                f.write("keep\n")
+            target = os.path.join(d, "x.json")
+            os.symlink(outside, target + ".tmp")          # a fixed temp name would be written through
+            checks._write(target, {"id": "x"})
+            with open(outside) as f:
+                self.assertEqual(f.read(), "keep\n")
+            with open(target) as f:
+                self.assertEqual(json.load(f), {"id": "x"})
+            self.assertEqual(sorted(os.listdir(d)), ["outside.txt", "x.json", "x.json.tmp"])
+
+
+def checks_mod():
+    return import_bin("checks")
+

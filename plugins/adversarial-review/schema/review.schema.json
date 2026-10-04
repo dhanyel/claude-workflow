@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["APPROVED", "REJECTED"],
+      "description": "REJECTED if there is at least one finding with severity BLOCKER. Otherwise APPROVED."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Two to four sentences on the state of the plan."
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["BLOCKER", "RISK", "NOTE"],
+            "description": "BLOCKER = implementing it as written produces wrong code, breaks a contract, or does not meet the spec. RISK = likely rework. NOTE = improvement."
+          },
+          "where": {"type": "string", "description": "Task N / Step M of the plan, or section."},
+          "problem": {"type": "string"},
+          "why_it_matters": {"type": "string"},
+          "evidence": {
+            "type": "string",
+            "description": "REQUIRED: file:line in the repo, or a literal quote from the spec/plan. A finding without verifiable evidence must be downgraded to NOTE."
+          },
+          "fix": {"type": "string", "description": "What to change in the plan, concretely."}
+        },
+        "required": ["severity", "where", "problem", "why_it_matters", "evidence", "fix"],
+        "additionalProperties": false
+      }
+    },
+    "mechanical_checks": {
+      "type": "array",
+      "description": "One entry per check executed with grep/reading in the repo.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "check": {"type": "string"},
+          "command": {"type": "string", "description": "The search/read tool call (or command) actually made."},
+          "result": {"type": "string", "enum": ["PASSED", "FAILED", "NOT_APPLICABLE"]},
+          "detail": {"type": "string"}
+        },
+        "required": ["check", "command", "result", "detail"],
+        "additionalProperties": false
+      }
+    },
+    "spec_promises_without_task": {
+      "type": "array",
+      "description": "Verbs/objects of the spec that no task covers. Empty if all are covered.",
+      "items": {"type": "string"}
+    }
+  },
+  "required": ["verdict", "summary", "findings", "mechanical_checks", "spec_promises_without_task"],
+  "additionalProperties": false
+}

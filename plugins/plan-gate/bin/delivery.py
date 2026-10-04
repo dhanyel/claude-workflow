@@ -26,8 +26,8 @@ set (bitbucket.org, codeberg.org, the origin's own host, a repo `api_url`) gets 
 it. An explicit `base_url` passed to the library functions is the caller's decision.
 
 ⚠️ R78 -- and the PROJECT comes from `origin`, so the origin must live on that same API host (github.com counts as
-api.github.com), or on the host the environment names. Otherwise a hostile origin plus a repo `api_url` pointing at
-a trusted host would spend the token on whatever project the hostile origin names.
+api.github.com) -- R89: strictly, not merely on a host the environment names. Otherwise a hostile origin plus a repo
+`api_url` pointing at a trusted host would spend the token on whatever project the hostile origin names.
 
 ⚠️ R71 -- a token never travels in cleartext: a token-bearing base is https. Plain http is bound only when the
 person wrote the scheme in the environment (`GITLAB_HOST=http://host`, `GH_HOST=http://host`), and only for that
@@ -269,13 +269,16 @@ def origin_host(repo):
 
 
 def _origin_matches(plat, origin, host):
-    """R78: is `origin` the API host itself (github.com = api.github.com), or the host the environment names?"""
+    """R78/R89: the origin (where the project name comes from) must BE the API host (github.com counts as
+    api.github.com).
+
+    ⚠️ R89: the earlier "or the host the environment names" clause let an origin on GITLAB_HOST=corp.example pair
+    with an api_url of gitlab.com -- the project path of one host sent to another, where a project with the same
+    path would receive the MR/note.
+    """
     if not origin:
         return False
-    if origin == host or (plat == "github" and origin == "github.com" and host == GITHUB_API_HOST):
-        return True
-    named = gh_host() if plat == "github" else _host(os.environ.get("GITLAB_HOST")) if plat == "gitlab" else None
-    return origin == named
+    return origin == host or (plat == "github" and origin == "github.com" and host == GITHUB_API_HOST)
 
 
 def token_bound(repo, plat, base):
@@ -283,7 +286,7 @@ def token_bound(repo, plat, base):
 
     R70: the API host is one the environment names. R71: and the scheme is https -- or http on exactly the host and
     port the person wrote as `http://…` in GITLAB_HOST / GH_HOST. A repo `api_url` never downgrades a host.
-    R78: and the origin (where the project name comes from) is that API host or the environment's host -- when it
+    R78/R89: and the origin (where the project name comes from) is that API host (strict) -- when it
     is not, the host returned is the origin's.
     """
     host = _host(base)

@@ -22,7 +22,7 @@ command.
 
 A token is only sent to a host **the person's environment** names: `GITLAB_TOKEN` to `gitlab.com` or the host
 of `GITLAB_HOST`; `GITHUB_TOKEN` to `api.github.com` or the host of `GH_HOST` (GitHub Enterprise). The `origin`
-remote must also live on that API host (or on the host the environment names), because the project name comes
+remote must also live on that very API host (strictly; naming the origin's host in the environment is not enough), because the project name comes
 from it. The repo config never adds a host -- it travels with the repo, so a cloned repo could otherwise send the token to its
 own server. On a self-hosted GitLab the person sets `GITLAB_HOST`; on GitHub Enterprise, `GH_HOST`. The token
 travels only over https; plain http only when the person wrote the scheme there (`GITLAB_HOST=http://host`), and

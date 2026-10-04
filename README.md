@@ -1,11 +1,16 @@
 # claude-workflow
 
-A Claude Code marketplace with one plugin, **plan-gate**: a plan-first, measured workflow.
+A Claude Code marketplace with two plugins: **plan-gate**, a plan-first, measured workflow, and
+**adversarial-review**, a plan review by a model of another lineage that plan-gate enforces as a required check.
 
 - **Plan gate.** While a plan (or the spec behind it) has not passed its checks, the tools that change
   the repository are refused. The hooks do it, so it holds even when nobody remembers to ask.
 - **Mechanical preflights.** `grep`-grade checks of a plan and of a spec, with no model in the loop.
 - **Registrable checks.** Any plugin can add a check that has to pass before a plan is approved.
+- **Adversarial review (`adversarial-review`).** Sends the plan to a reviewer of another model lineage (Codex,
+  opencode or an OpenAI-compatible endpoint) that runs read-only inside the repo and checks the plan against the
+  code that exists. A plan is not approved without an `APPROVED` review of its current content. See
+  [plugins/adversarial-review](plugins/adversarial-review/README.md).
 - **Wall-clock timeline.** Each phase of a demand is stamped from the clock, never estimated.
 - **Delivery report.** Writes the MR/PR description from the real diff, publishes it on GitHub or
   GitLab, reads it back to verify it, and comments the timing table on the issue.
@@ -17,6 +22,7 @@ Why each piece exists: [docs/method.md](docs/method.md).
 ```
 /plugin marketplace add dhanyel/claude-workflow
 /plugin install plan-gate@claude-workflow
+/plugin install adversarial-review@claude-workflow   # optional; needs plan-gate >= 0.2.0
 ```
 
 To try a local clone instead, add its path as the marketplace:
@@ -38,7 +44,13 @@ Requirements: `python3` >= 3.10 (standard library only) and `git`. `ripgrep` is 
    and anything under the repo's own `docs/superpowers/` (at the repo root), stays allowed. Writing the plan
    stays allowed too, unless a spec is still pending: then the plan write is refused as well. A gate state
    file that cannot be read counts as pending, and a file tool aimed at the state folder is always refused
-   (approval comes from the checks, release from a human).
+   (approval comes from the checks, release from a human). While anything is pending, a file tool aimed
+   anywhere under `~/.claude/claude-workflow/` (the state of every check plugin, such as adversarial-review's
+   verdicts), `PLAN_GATE_DIR` or `ADVERSARIAL_REVIEW_DIR` is refused too.
+
+   ⚠️ **The gate is not a sandbox.** It stops a forgetful agent from implementing before the plan is approved; it
+   does not contain a malicious one. A command it does not read as a write (`python3 -c "open(...).write(...)"`,
+   for one) still writes, wherever it points.
 3. Fix the findings in the plan and save it again. When every required check passes, it is `approved`.
 4. See where things stand, and release by hand when a finding is a false positive:
 
@@ -63,11 +75,13 @@ python3 "$PLUGIN/bin/plan_gate.py" release docs/superpowers/plans/my-plan.md \
     `created-not-committed`, `verification-gap`;
   - spec: `guarantees`, `citations`, `support`, `outside-repo`, `quantities`, `claims`.
 - A release is tied to the file's content: edit the plan afterwards and it is `pending` again.
+- `release` also runs every other required check that applies; one that fails blocks the release unless you name
+  it with `--despite-check <id>="why"`, which is recorded.
 - There is no release that skips the check: `release` runs the preflight on the file as it is now, and
   refuses while a group that blocks has no escape.
 
 Other commands: `plan_gate.py run-checks <file>` (run the required checks now), `plan_gate.py checks list`,
-`plan_gate.py checks prune` (removes orphaned registrations), `plan_gate.py register-check <manifest>`.
+`plan_gate.py checks prune` (removes orphaned registrations), `plan_gate.py register-check <manifest>`, `plan_gate.py hash <file>` and `plan_gate.py config <file>` (what check plugins use).
 
 Skills: `preflight-plan`, `preflight-spec`, `phase` (`/phase start|review|validation|delivered|report`) and
 `delivery-report`.
@@ -119,7 +133,8 @@ The repo travels with `git clone`, so the repo config can never decide where you
 - `GITHUB_TOKEN` goes only to `api.github.com` or the host named in **your** `GH_HOST`.
 - `api_url` in the repo config only picks the API base for a host you already named; it never adds one.
 - The project name comes from `origin`, so `origin` must live on that same API host (`github.com` counts as
-  `api.github.com`) or on the host you named in `GITLAB_HOST` / `GH_HOST`.
+  `api.github.com`) -- strictly: naming the origin's host in `GITLAB_HOST` / `GH_HOST` does not pair it with an
+  API on another host.
 - The token travels over **https**. Plain http is used only when you wrote `http://` yourself in
   `GITLAB_HOST` / `GH_HOST`, and only to that exact host and port.
 - Anything else is answered with `token-not-bound-to-host` and nothing is sent.
@@ -135,9 +150,11 @@ checks in a `plan-gate-check.json` at its root (one object or a list):
  "required": true, "applies_to": ["plan"]}
 ```
 
-At `SessionStart`, plan-gate registers **only its own** `plan-gate-check.json`, copying each entry to
-`<state dir>/checks.d/<id>.json` with `${CLAUDE_PLUGIN_ROOT}` resolved. There is no auto-discovery: another
-plugin must call `plan_gate.py register-check <manifest>` from its own hook.
+At `SessionStart`, plan-gate registers **its own** `plan-gate-check.json`, copying each entry to
+`<state dir>/checks.d/<id>.json` with `${CLAUDE_PLUGIN_ROOT}` resolved. There is no directory scan: another plugin
+announces its manifest in the inbox `<state dir>/manifests.d/<plugin>.json` (or calls
+`plan_gate.py register-check <manifest>`), and an inbox entry the gate cannot register is a failing required check.
+The details, including the gate pointer, are in the [plan-gate README](plugins/plan-gate/README.md#check-plugins-contract).
 
 - **Invocation.** `shlex.split(command)`, run **without a shell**, with the absolute path of the checked
   file appended as the **last argument**, a 45 second timeout, no stdin.
@@ -211,6 +228,10 @@ issue. The description comes from `templates/<language>/mr.md`, or from the file
   to the hosts described above. The one other lookup is `/phase start`: a single read-only query for the
   open MR/PR of the branch, under the same token and host rules, with a 10 s total deadline; it is skipped
   when there is no token or the host is not bound.
+  `/phase start` also runs `git fetch -q <remote> <base>` (`plugins/plan-gate/bin/phase.py:165`) to measure
+  the branch against its base; that uses your own git credentials and remote, like any fetch.
+- `adversarial-review` sends the plan and what its agent reads in the repo to the backend you chose -- and nothing
+  without one.
 - Plans, specs and reviews are your files; the default `docs/superpowers/` folder is something your own
   `.gitignore` decides whether to version.
 

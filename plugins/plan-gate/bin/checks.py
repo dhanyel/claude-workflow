@@ -13,7 +13,7 @@ not that JSON, an invalid status, a command that cannot start, a timeout -- is `
 group carrying the reason. The exit code is NOT what decides (R17): the preflights exit 1/2 on a fail, and
 their findings have to survive.
 """
-import json, os, re, shlex, subprocess, sys
+import json, os, re, shlex, subprocess, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
@@ -34,8 +34,19 @@ RE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 ERROR_GROUP = "check-error"
 
 
+INBOX = "manifests.d"
+
+
 def checks_dir():
     return os.path.join(config.state_dir(), "checks.d")
+
+
+def inbox_dir():
+    return os.path.join(config.state_dir(), INBOX)
+
+
+def _inbox_error_file(plugin):
+    return os.path.join(checks_dir(), f"inbox-{plugin}.json")
 
 
 def timeout():
@@ -53,6 +64,10 @@ def _problem(entry):
     cid = entry.get("id")
     if not isinstance(cid, str) or not RE_ID.match(cid):
         return i18n.t("checks.bad_id", got=repr(cid))
+    if cid.startswith("inbox-"):
+        # reserved for the gate's own inbox error records: a manifest called `inbox-x` could be deleted by the inbox
+        # cleanup, or pass for a resolved error (final review M5)
+        return i18n.t("checks.reserved_id", got=repr(cid))
     command = entry.get("command")
     if not isinstance(command, str) or not command.strip():
         return i18n.t("checks.bad_command", id=cid)
@@ -84,10 +99,20 @@ def _owner(manifest_path):
 
 
 def _write(target, data):
-    tmp = target + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, target)
+    """Atomic, through a UNIQUE temp file in the same folder (mkstemp: O_EXCL, never a fixed `.tmp` that two writers
+    share or that a planted symlink redirects)."""
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(target) + ".", suffix=".tmp", dir=os.path.dirname(target))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def register(manifest_path, plugin_root):
@@ -170,6 +195,62 @@ def _replaceable(existing, owner):
             and bool(_missing_paths(existing.get("command") or "")))
 
 
+def _owns_error_file(path):
+    """May the gate touch `path`? Only when absent or an inbox error record -- never a real check that happens
+    to be called `inbox-<x>`."""
+    if not os.path.lexists(path):
+        return True
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and "inbox_error" in data
+
+
+def ingest_inbox():
+    """Registers every manifest a plugin announced in manifests.d (adversarial-review spec §4.1.3).
+
+    ⚠️ Why an inbox and not the plugin calling register-check: the order of two plugins' SessionStart hooks is not
+    guaranteed, so a plugin installed before the gate wrote anything would silently go unregistered -- a required
+    check that is not there approves nothing ... unless the preflight passes, and then it approves WITHOUT it.
+    ⚠️ An entry that cannot be registered becomes a failing required check (`inbox-<plugin>`), never a skipped one:
+    skipping it is exactly the zero-coverage window this exists to close.
+    """
+    folder = inbox_dir()
+    if not os.path.isdir(folder):
+        return []
+    done = []
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith(".json"):
+            continue
+        plugin, source = name[:-len(".json")], os.path.join(folder, name)
+        error_file = _inbox_error_file(plugin)
+        try:
+            with open(source, encoding="utf-8") as f:
+                entry = json.load(f)
+            manifest, root = entry["manifest"], entry["plugin_root"]
+            if not all(isinstance(v, str) and os.path.isabs(v) for v in (manifest, root)):
+                raise ValueError(i18n.t("checks.inbox_bad_entry"))
+            ids = register(manifest, root)
+        except Exception as e:  # noqa: BLE001 -- one bad entry must never drop the ones after it
+            try:
+                if _owns_error_file(error_file):
+                    os.makedirs(checks_dir(), exist_ok=True)
+                    _write(error_file, {"id": f"inbox-{plugin}", "inbox_error": f"{type(e).__name__}: {e}",
+                                        "source": source})
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        try:
+            if os.path.lexists(error_file) and _owns_error_file(error_file):
+                os.remove(error_file)
+        except Exception:  # noqa: BLE001
+            pass
+        done.extend(ids)
+    return done
+
+
 def registered():
     """Every manifest in checks.d, sorted by file name.
 
@@ -191,6 +272,11 @@ def registered():
                 entry = json.load(f)
         except (OSError, ValueError) as e:
             out.append({"id": stem, "error": f"{type(e).__name__}: {e}", "file": path})
+            continue
+        if isinstance(entry, dict) and "inbox_error" in entry:
+            out.append({"id": stem, "file": path, "inbox": True,
+                        "error": i18n.t("checks.inbox_failed", plugin=stem[len("inbox-"):],
+                                        error=entry["inbox_error"], source=entry.get("source", "?"))})
             continue
         if isinstance(entry, dict) and isinstance(entry.get("conflict"), list):
             out.append({"id": stem, "file": path, "conflict": entry["conflict"],
@@ -268,9 +354,14 @@ def _missing_paths(command):
     return [t for t in tokens if os.path.isabs(t) and not os.path.exists(t)]
 
 
-def run(check, path):
-    """Runs one check on `path` -> {"status": "pass"|"fail", "findings": [...]}. Never raises."""
-    if check.get("missing") or "conflict" in check:
+def run(check, path, content_hash=None):
+    """Runs one check on `path` -> {"status": "pass"|"fail", "findings": [...]}. Never raises.
+
+    ⚠️ adversarial-review spec §4.1.1: the check gets the content hash the gate will record, in
+    PLAN_GATE_CONTENT_HASH -- ONE owner of the hash (two implementations of it is how an approval stops matching
+    what the hook checks).
+    """
+    if check.get("missing") or "conflict" in check or check.get("inbox"):
         return _error(check["error"])
     if "error" in check:
         return _error(i18n.t("checks.corrupted", id=check.get("id"), error=check["error"]))
@@ -284,9 +375,14 @@ def run(check, path):
     except ValueError as e:
         return _error(i18n.t("checks.unparsable", id=check.get("id"), error=e))
     limit = timeout()
+    # ⚠️ Built EVERY time, the inherited variable popped: with no hash, a PLAN_GATE_CONTENT_HASH left in the parent's
+    # environment would reach the check as if the gate had vouched for it (final review M1).
+    env = {k: v for k, v in os.environ.items() if k != "PLAN_GATE_CONTENT_HASH"}
+    if content_hash:
+        env["PLAN_GATE_CONTENT_HASH"] = content_hash
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=limit, stdin=subprocess.DEVNULL,
-                           cwd=os.path.dirname(os.path.abspath(path)))
+                           cwd=os.path.dirname(os.path.abspath(path)), env=env)
     except subprocess.TimeoutExpired:
         return _error(i18n.t("checks.timed_out", id=check.get("id"), timeout=limit))
     except (OSError, ValueError) as e:
@@ -334,6 +430,36 @@ def cmd_list():
     return 0
 
 
+def _prune_inbox():
+    """Drops the inbox entries whose manifest is gone (or unreadable), with their error record, and the error
+    records whose inbox entry no longer exists (they would fail required forever)."""
+    gone = []
+    folder = inbox_dir()
+    names = sorted(n for n in os.listdir(folder) if n.endswith(".json")) if os.path.isdir(folder) else []
+    for name in names:
+        plugin, source = name[:-len(".json")], os.path.join(folder, name)
+        try:
+            with open(source, encoding="utf-8") as f:
+                manifest = json.load(f)["manifest"]
+            alive = isinstance(manifest, str) and os.path.exists(manifest)
+        except (OSError, ValueError, KeyError, TypeError):
+            alive = False
+        if alive:
+            continue
+        os.remove(source)
+        if os.path.lexists(_inbox_error_file(plugin)) and _owns_error_file(_inbox_error_file(plugin)):
+            os.remove(_inbox_error_file(plugin))
+        gone.append(f"inbox-{plugin}")
+    if os.path.isdir(checks_dir()):
+        for name in sorted(os.listdir(checks_dir())):
+            path = os.path.join(checks_dir(), name)
+            if (name.startswith("inbox-") and name.endswith(".json") and _owns_error_file(path)
+                    and not os.path.lexists(os.path.join(folder, name[len("inbox-"):]))):
+                os.remove(path)
+                gone.append(name[:-len(".json")])
+    return gone
+
+
 def cmd_prune():
     """Removes ORPHANS only. A corrupted manifest is kept and named (R32): its command cannot be read, so
     nobody can tell whether it is an orphan -- deleting it would be deleting a required check by guess."""
@@ -342,6 +468,7 @@ def cmd_prune():
         if "error" not in c and _missing_paths(c["command"]):
             os.remove(c["file"])
             removed.append(c["id"])
+    removed.extend(_prune_inbox())
     print(i18n.t("checks.pruned", ids=", ".join(removed)) if removed else i18n.t("checks.nothing_to_prune"))
     bad = corrupted()
     if bad:

@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""A fake `opencode` for the tests: never the real binary, never the network.
+
+--version              prints FAKE_OPENCODE_VERSION (default 1.18.32)
+run ...                appends {argv, config, config_content, disable_project_config, token_in_env} to FAKE_OPENCODE_LOG
+                       (one JSON line per call, when set), finds the delivery path in the prompt (the text
+                       "Write the review JSON to `<path>`" that backend_opencode._delivery writes) and writes there the
+                       contents of the file FAKE_OPENCODE_REPLY (default: a minimal valid APPROVED); prints one JSON
+                       line with the sessionID and one step-finish line.
+FAKE_OPENCODE_MODE     invalid_once     the first call writes invalid JSON, the one with --session the valid one
+                       invalid_always   every call writes invalid JSON
+                       silent           writes nothing and sleeps 30 s (a start-up stall)
+                       talk_then_silent prints the session line, then sleeps 30 s (a stall mid-run)
+                       chatty           prints a line every 0.2 s for 30 s (bytes flow, it never ends)
+                       exit1            writes nothing and exits 1
+                       echo_token       prints an error event quoting the endpoint token 10 times (and as its
+                                        modelID), writes nothing, exits 1
+                       echo_token_ok    the same error event and a text quoting the token, then a normal success
+"""
+import json, os, re, sys, time
+
+TOKEN_VAR = "ADVERSARIAL_REVIEW_ENDPOINT_TOKEN"
+argv = sys.argv[1:]
+if argv[:1] == ["--version"]:
+    print(os.environ.get("FAKE_OPENCODE_VERSION", "1.18.32"))
+    sys.exit(0)
+if argv[:1] != ["run"]:
+    sys.exit(0)
+
+config = None
+if os.environ.get("OPENCODE_CONFIG"):
+    try:
+        with open(os.environ["OPENCODE_CONFIG"], encoding="utf-8") as f:
+            config = f.read()
+    except OSError:
+        config = None
+if os.environ.get("FAKE_OPENCODE_LOG"):
+    with open(os.environ["FAKE_OPENCODE_LOG"], "a", encoding="utf-8") as f:
+        f.write(json.dumps({"argv": argv, "config": config,
+                            "config_path": os.environ.get("OPENCODE_CONFIG"),
+                            "config_content": os.environ.get("OPENCODE_CONFIG_CONTENT"),
+                            "disable_project_config": os.environ.get("OPENCODE_DISABLE_PROJECT_CONFIG"),
+                            "token_in_env": os.environ.get(TOKEN_VAR)}) + "\n")
+
+
+def say(event):
+    sys.stdout.write(json.dumps(event) + "\n")
+    sys.stdout.flush()
+
+
+mode = os.environ.get("FAKE_OPENCODE_MODE", "")
+session = argv[argv.index("--session") + 1] if "--session" in argv else "ses-fake-1"
+if mode == "silent":
+    time.sleep(30)
+    sys.exit(0)
+if mode == "exit1":
+    sys.exit(1)
+if mode in ("echo_token", "echo_token_ok"):
+    # the key tiled across 10 copies: any cut (at 160, 300, the last 300...) lands inside one of them
+    tiled = (os.environ.get(TOKEN_VAR, "") + "|") * 10
+    say({"type": "error", "sessionID": session, "modelID": os.environ.get(TOKEN_VAR, ""),
+         "error": {"message": "401 invalid api key " + tiled}})
+    if mode == "echo_token":
+        sys.exit(1)
+    say({"type": "text", "sessionID": session, "part": {"type": "text", "text": "key was " + tiled}})
+say({"type": "step_start", "sessionID": session, "part": {"type": "step-start"}})
+if mode == "talk_then_silent":
+    time.sleep(30)
+    sys.exit(0)
+if mode == "chatty":
+    for _ in range(150):
+        say({"type": "text", "sessionID": session, "part": {"type": "text", "text": "."}})
+        time.sleep(0.2)
+    sys.exit(0)
+
+m = re.search(r"Write the review JSON to `([^`]+)`", argv[-1] if argv else "")
+if m:
+    if mode == "invalid_always" or (mode == "invalid_once" and "--session" not in argv):
+        text = '{"verdict": "APPROVED", oops'
+    elif os.environ.get("FAKE_OPENCODE_REPLY"):
+        with open(os.environ["FAKE_OPENCODE_REPLY"], encoding="utf-8") as f:
+            text = f.read()
+    else:
+        text = json.dumps({"verdict": "APPROVED", "summary": "fake opencode approves", "findings": [],
+                           "mechanical_checks": [], "spec_promises_without_task": []})
+    with open(m.group(1), "w", encoding="utf-8") as f:
+        f.write(text)
+say({"type": "text", "sessionID": session, "part": {"type": "text", "text": "done"}})
+say({"type": "step_finish", "sessionID": session,
+     "part": {"type": "step-finish", "tokens": {"input": 10, "output": 5}}})

@@ -4,6 +4,8 @@
   "metadata": {"description": "Claude Code plugins for a plan-first, measured workflow."},
   "plugins": [
     {"name": "plan-gate", "source": "./plugins/plan-gate",
-     "description": "Blocks implementation until the plan passes its checks; times each phase; writes the MR/PR."}
+     "description": "Blocks implementation until the plan passes its checks; times each phase; writes the MR/PR."},
+    {"name": "adversarial-review", "source": "./plugins/adversarial-review",
+     "description": "Adversarial plan review by another model (Codex, opencode or an OpenAI-compatible endpoint), enforced by plan-gate."}
   ]
 }

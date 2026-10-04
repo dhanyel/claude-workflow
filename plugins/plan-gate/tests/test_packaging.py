@@ -6,7 +6,8 @@ class TestPackaging(unittest.TestCase):
         with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")) as f:
             m = json.load(f)
         self.assertEqual(m["name"], "claude-workflow")
-        self.assertEqual([(p["name"], p["source"]) for p in m["plugins"]], [("plan-gate", "./plugins/plan-gate")])
+        self.assertEqual([(p["name"], p["source"]) for p in m["plugins"]], [("plan-gate", "./plugins/plan-gate"),
+                         ("adversarial-review", "./plugins/adversarial-review")])
 
     def test_plugin_manifest(self):
         with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:

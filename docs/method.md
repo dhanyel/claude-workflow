@@ -93,6 +93,15 @@ shell, with an owner (the plugin folder, not a name anyone can declare), so one 
 replace another's failing check with a passing one. The bundled preflights are the first two users of the
 contract, not a special case.
 
+## Review by another model
+
+A plan reviewed by the model that wrote it agrees with itself, and the tests of its tasks come out of the same plan,
+so they agree too. The review that breaks that circle is one by a model of another lineage, reading the code that
+exists. It is a **required check**, not an optional skill, because a rule that depends on remembering has already
+failed: a step that depends on someone remembering to take it is the one that gets skipped. And it runs **outside the hook**: the
+gate answers a hook in seconds, a review takes minutes, so the review records a verdict for the plan's content hash
+and the check only reads it. The gate never waits for a model, and a failed review approves nothing.
+
 ## Delivery report
 
 The description of a merge request is written from the diff and the commands that actually ran, and what did

@@ -538,11 +538,6 @@ class TestUpdate(unittest.TestCase):
         self.assertEqual(seen, [])
 
 
-def _host_of(url):
-    import urllib.parse
-    return urllib.parse.urlsplit(url).hostname
-
-
 class TestTokenBinding(unittest.TestCase):
     """R70/R71/R78: a token goes only to a host the environment names, over https, for an origin on that host."""
     def calls_for(self, remote, env, cfg=None, argv=None):
@@ -635,12 +630,19 @@ class TestTokenBinding(unittest.TestCase):
                         self.assertIn("token-not-bound-to-host: code.example.org", data["error"])
 
     def test_r70_repo_api_url_inside_the_trusted_set_is_used(self):
-        # R78: the origin must be on the API host (or the host the environment names) -- same host, other port
+        # R78: the origin must be on the API host -- same host, other port
         rc, data, seen, out = self.calls_for("git@code.example.org:g/p.git", {"GITLAB_HOST": "code.example.org"},
                                              cfg={"api_url": "https://code.example.org:8443/api/v4"})
         self.assertEqual(rc, 0, out)
         self.assertTrue(seen[0][0].startswith("https://code.example.org:8443/api/v4/"))
         self.assertEqual(seen[0][1]["PRIVATE-TOKEN"], "tok-gitlab-1")
+
+    def test_r89_origin_on_the_env_host_with_an_api_on_another_host_is_not_bound(self):
+        d = import_bin("delivery")
+        with mock.patch.dict(os.environ, {"GITLAB_HOST": "corp.example"}, clear=False), \
+             mock.patch.object(d, "origin_host", return_value="corp.example"):
+            bound, host = d.token_bound("/repo", "gitlab", "https://gitlab.com/api/v4")
+        self.assertEqual((bound, host), (False, "corp.example"))
 
     def test_r78_the_origin_host_must_be_the_api_host(self):
         """Measured: origin on a hostile host + a repo config pointing the API at gitlab.com sent the token to
@@ -666,12 +668,15 @@ class TestTokenBinding(unittest.TestCase):
             self.assertEqual(rc, 0, out)
             self.assertEqual(seen, [])                       # render's default-branch lookup is skipped too
 
-    def test_r78_the_origin_on_the_environment_host_is_bound(self):
+    def test_r78_r89_origin_binds_only_when_it_is_the_api_host(self):
         rc, data, seen, out = self.calls_for("git@gitlab.com:g/p.git", {})
         self.assertEqual(rc, 0, out)
+        # R89: naming the origin's host in the environment does not pair it with an API on another host
         rc, data, seen, out = self.calls_for("git@git.example.org:g/p.git", {"GITLAB_HOST": "git.example.org"},
                                              cfg={"api_url": "https://gitlab.com/api/v4"})
-        self.assertEqual(rc, 0, out)                         # the person named the origin's host
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(seen, [])
+        self.assertIn("token-not-bound-to-host: git.example.org", data["error"])
 
     def test_r70_gh_host_binds_the_github_token_and_derives_the_ghe_base(self):
         rc, data, seen, out = self.calls_for("git@ghe.example.org:o/r.git", {"GH_HOST": "ghe.example.org"})
@@ -756,8 +761,14 @@ class TestTokenBinding(unittest.TestCase):
 
     def test_r71_an_http_env_host_binds_only_that_exact_host_and_port(self):
         env = {"GITLAB_HOST": "http://git.example.org"}
-        for cfg in ({"api_url": "http://git.example.org:9999/api/v4"}, {"api_url": "http://gitlab.com/api/v4"}):
-            self.assertNotBound("git@git.example.org:g/p.git", env, cfg, _host_of(cfg["api_url"]))
+        # same host, other port: refused by the R71 port comparison
+        self.assertNotBound("git@git.example.org:g/p.git", env, {"api_url": "http://git.example.org:9999/api/v4"},
+                            "git.example.org")
+        # origin == API host (so R89 passes) but not the host the person wrote as http: only R71's host comparison refuses
+        self.assertNotBound("git@gitlab.com:g/p.git", env, {"api_url": "http://gitlab.com/api/v4"}, "gitlab.com")
+        # R89 on top: an origin on the http env host with an API on another host is refused as well
+        self.assertNotBound("git@git.example.org:g/p.git", env, {"api_url": "http://gitlab.com/api/v4"},
+                            "git.example.org")
         # the GitLab variable never lets the GitHub token travel in cleartext
         self.assertNotBound("git@git.example.org:o/r.git", env,
                             {"platform": "github", "api_url": "http://git.example.org/api/v3"}, "git.example.org")
